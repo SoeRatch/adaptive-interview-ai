@@ -1,0 +1,1 @@
+# The __init__.py file (can be empty) makes DataScrapping a Python package. Without it, Python can’t import it.
