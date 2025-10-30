@@ -30,6 +30,9 @@ def can_fetch(url: str) -> bool:
     try:
         res = requests.get(domain, timeout=REQUEST_TIMEOUT)
         if res.status_code >= 400:
+            # When you get a 4xx or 5xx error on /robots.txt, it means
+            # the site doesn’t have a robots.txt file (404 Not Found), or
+            # it is temporarily unavailable (500, 502, 503, etc.).
             # If robots.txt not accessible, assume allowed
             return True
         
