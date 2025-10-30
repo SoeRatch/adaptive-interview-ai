@@ -3,11 +3,17 @@
 """
 text_preprocessor.py
 ----------------------
-End-to-end preprocessing pipeline:
-- Cleans and normalizes scraped corpus
-- Removes duplicates and non-English content
-- Deduplicates semantically similar docs
-- Chunks long texts for topic modeling
+Stage 1: Text Cleaning & Normalization
+
+Purpose:
+- Clean and normalize scraped documents
+- Remove duplicate URLs (keep latest)
+- Remove non-English or too-short content
+- Preserve paragraph structure for semantic chunking
+- Output one clean document per row (ready for embedding/chunking)
+
+Input:  data/processed/web_scraper_output.csv
+Output: data/processed/clean_corpus.csv
 """
 
 import os
@@ -15,13 +21,11 @@ import re
 import pandas as pd
 from bs4 import BeautifulSoup
 from langdetect import detect, DetectorFactory
-from nltk.corpus import stopwords
-from nltk.tokenize import word_tokenize
-from nltk.stem import WordNetLemmatizer
-from sentence_transformers import SentenceTransformer, util
+# import nltk
+# from nltk.tokenize import word_tokenize
+# from nltk.corpus import stopwords
+# from nltk.stem import WordNetLemmatizer
 from pathlib import Path
-import nltk
-import torch
 from tqdm import tqdm
 tqdm.pandas()
 
@@ -32,183 +36,160 @@ from src.data_preprocessing.preprocess_constants import (
 # Set the proper output path
 PROCESSED_DIR = Path(__file__).parents[2] / "data" / "processed"
 PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
-INPUT_PATH = PROCESSED_DIR / WEB_SCRAPER_OUTPUT
-OUTPUT_PATH = PROCESSED_DIR / CLEAN_CORPUS_OUTPUT
 
 # --- Setup ---
 DetectorFactory.seed = 0  # make language detection deterministic
 
 
-def download_nltk_resources():
-    resources = {
-        "punkt": "tokenizers/punkt",
-        "punkt_tab": "tokenizers/punkt_tab",
-        "stopwords": "corpora/stopwords",
-        "wordnet": "corpora/wordnet"
-    }
-    for name, path in resources.items():
-        try:
-            nltk.data.find(path)
-            print(f"✔ NLTK resource '{name}' already exists, skipping download.")
-        except LookupError:
-            print(f"Downloading NLTK resource: {name} ...")
-            nltk.download(name)
+# def download_nltk_resources():
+#     resources = {
+#         "punkt": "tokenizers/punkt",
+#         "punkt_tab": "tokenizers/punkt_tab",
+#         "stopwords": "corpora/stopwords",
+#         "wordnet": "corpora/wordnet"
+#     }
+#     for name, path in resources.items():
+#         try:
+#             nltk.data.find(path)
+#             print(f"NLTK resource '{name}' already exists, skipping download.")
+#         except LookupError:
+#             print(f"Downloading NLTK resource: {name} ...")
+#             nltk.download(name)
 
-download_nltk_resources()
+# download_nltk_resources()
 
 
-class CleanCorpus:
-    def __init__(self, chunk_size=400, similarity_threshold=0.92):
-        self.chunk_size = chunk_size
-        self.similarity_threshold = similarity_threshold
-        self.stop_words = set(stopwords.words("english"))
-        self.lemmatizer = WordNetLemmatizer()
-        self.embedder = SentenceTransformer("all-MiniLM-L6-v2")
+class TextPreprocessor:
+    """Clean and normalize scraped documents for downstream modeling."""
+
+    def __init__(self, min_word_count=300, input_filename=WEB_SCRAPER_OUTPUT, output_filename=CLEAN_CORPUS_OUTPUT):
+        self.min_word_count = min_word_count
+        # self.stop_words = set(stopwords.words("english"))
+        # self.lemmatizer = WordNetLemmatizer()
+
+        self.input_path = PROCESSED_DIR / input_filename
+        self.output_path = PROCESSED_DIR / output_filename
 
     # Cleaning Helpers
-    def clean_html(self, text: str) -> str:
+    def extract_clean_text(self, text: str) -> str:
+        """Remove HTML tags, scripts, URLs, and non-alphabetic noise while preserving paragraphs."""
         soup = BeautifulSoup(text, "html.parser")
+
+        # Remove scripts and styles
         for tag in soup(["script", "style"]):
             tag.decompose()
-        text = soup.get_text(separator=" ")
+        
+        # Extract text with newlines to mark paragraph breaks
+        text = soup.get_text(separator="\n")
+
+        # Remove URLs and special characters
         text = re.sub(r"http\S+", "", text)
-        text = re.sub(r"[^a-zA-Z\s]", " ", text)
-        text = re.sub(r"\s+", " ", text).strip()
-        return text
+        # text = re.sub(r"[^a-zA-Z0-9\s]", " ", text)
+        text = re.sub(r"[^\w\s.,!?%\-]", " ", text) # keeps common punctuation
 
-    def normalize_text(self, text: str) -> str:
-        text = text.lower()
-        tokens = word_tokenize(text)
-        cleaned = [
-            self.lemmatizer.lemmatize(tok)
-            for tok in tokens
-            if tok not in self.stop_words and len(tok) > 2
-        ]
-        return " ".join(cleaned)
 
-    def chunk_text(self, text: str):
-        words = text.split()
-        return [
-            " ".join(words[i : i + self.chunk_size])
-            for i in range(0, len(words), self.chunk_size)
-        ]
+        # Collapse 3+ newlines to 2 (to represent paragraph breaks)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+
+        # Normalize internal spaces within lines only
+        lines = [re.sub(r"\s+", " ", line).strip() for line in text.splitlines()]
+        text = "\n".join([line for line in lines if line])
+
+        return text.strip()
+    
+    def is_meaningful_content(self, text: str, min_word_count: int = 300) -> bool:
+        """
+        Returns True if text has sufficient meaningful content after normalization.
+        Used to filter out boilerplate, short, or non-informative pages.
+        """
+        text = re.sub(r'\s+', ' ', text.lower())
+        tokens = [w for w in text.split() if w.isalpha() and len(w) > 2]
+        return len(tokens) >= min_word_count
+
 
     def is_english(self, text: str) -> bool:
+        """Check if text is English using language detection."""
         try:
             return detect(text) == "en"
         except:
             return False
 
-    # Deduplication
-    # def semantic_deduplicate(self, texts: list[str]) -> list[str]:
-    #     """Remove near-duplicate documents using cosine similarity."""
-    #     if len(texts) < 2:
-    #         return texts
+    # Main Pipeline
+    def process(self):
+        """Run the full cleaning + deduplication pipeline."""
+        if not os.path.exists(self.input_path):
+            raise FileNotFoundError(f"File not found: {self.input_path}")
 
-    #     # Compute embeddings
-    #     embeddings = self.embedder.encode(texts, convert_to_tensor=True, show_progress_bar=True)
+        print(f"Loading scraped data from {self.input_path}")
+        df = pd.read_csv(self.input_path)
 
-    #     keep_indices = []
-    #     seen = set()
-
-    #     for i in range(len(texts)):
-    #         if i in seen:
-    #             continue
-    #         keep_indices.append(i)
-
-    #         # Only compare with subsequent texts to avoid repeated checks
-    #         sims = util.cos_sim(embeddings[i], embeddings[i + 1 :]).squeeze(0)
-    #         for offset, score in enumerate(sims):
-    #             j = i + 1 + offset
-    #             if score > self.similarity_threshold:
-    #                 seen.add(j)  # Mark duplicate
-
-    #     return [texts[i] for i in keep_indices]
-
-
-    # Deduplication
-    def semantic_deduplicate_vectorized(self, texts: list[str]) -> list[str]:
-        """
-        Remove near-duplicate documents using cosine similarity.
-        Fully vectorized version using PyTorch.
-        """
-        if len(texts) < 2:
-            return texts
-
-        # Compute embeddings
-        embeddings = self.embedder.encode(texts, convert_to_tensor=True, show_progress_bar=True)
-
-        # Compute full pairwise cosine similarity matrix
-        sims = util.cos_sim(embeddings, embeddings)
-
-        # Mask upper triangle and diagonal to avoid self-comparison
-        mask = torch.triu(torch.ones_like(sims), diagonal=0).bool()
-        sims = sims.masked_fill(mask, 0.0)
-
-        # Keep track of duplicates
-        duplicates = torch.any(sims > self.similarity_threshold, dim=0)
-
-        # Keep texts that are not duplicates
-        keep_indices = [i for i, is_dup in enumerate(duplicates) if not is_dup]
-
-        return [texts[i] for i in keep_indices]
-
-
-    # Pipeline
-    def process(self, input_file=INPUT_PATH, output_file=OUTPUT_PATH):
-        if not os.path.exists(input_file):
-            raise FileNotFoundError(f"❌ File not found: {input_file}")
-
-        print(f"Loading data from {input_file}")
-        df = pd.read_csv(input_file)
+        # Deduplicate by URL — keep the last occurrence (latest crawl)
+        df = df.drop_duplicates(subset=["url"], keep="last")
+        
         records = []
-
         for _, row in tqdm(df.iterrows(), total=len(df), desc="Processing rows"):
-            url, source, content = row.get("url"), row.get("source"), row.get("content", "")
+            url = row["url"]
+            source = row.get("source", "")
+            title = row.get("title", "")
+            content = row.get("content", "")
 
-            # skip empty or trivially short raw content
+            # Skip empty or trivially short raw content
             if not isinstance(content, str) or len(content) < 100:
+                tqdm.write(f"[SKIP] Skipped short content: {url}")
                 continue
             
-            # 1. Clean HTML
-            text = self.clean_html(content)
-            if not text or not self.is_english(text):
+            # 1. Clean HTML and preserve paragraphs
+            text = self.extract_clean_text(content)
+            if not text:
+                tqdm.write(f"[SKIP] Empty text after cleaning: {url}")
                 continue
             
-            # 2. Normalize text (lowercase, lemmatize, remove stopwords)
-            normalized = self.normalize_text(text)
-            if not normalized:
+            # 2. Filter non-English documents
+            if not self.is_english(text):
+                tqdm.write(f"[SKIP] Non-English content skipped: {url}")
                 continue
             
-            # 3. Filter by meaningful content length
-            if len(normalized.split()) < 300:
-                continue  # skip texts with <300 words after cleaning & normalization
+            
+            # 2. Filter short documents i.e filtering by meaningful content length
+            if not self.is_meaningful_content(text, self.min_word_count):
+                tqdm.write(f"[SKIP] Too short (<{self.min_word_count} words): {url}")
+                continue  # skip texts with <300 words
 
-            # 4. Chunk long texts
-            chunks = self.chunk_text(normalized)
-            for i, chunk in enumerate(chunks, 1):
-                records.append({
-                    "url": url,
-                    "source": source,
-                    "chunk_id": i,
-                    "text": chunk
+            records.append({
+                "url": url,
+                "source": source,
+                "title": title,
+                "text": text
                 })
 
-        print(f"Total text chunks before deduplication: {len(records)}")
-
+        if not records:
+            print("No valid documents after cleaning. Check content length or filters.")
+            return
+        
+        # Save final clean corpus
         df_clean = pd.DataFrame(records)
-        # dedup_texts = self.semantic_deduplicate(df_clean["text"].tolist())
-        dedup_texts = self.semantic_deduplicate_vectorized(df_clean["text"].tolist())
-        df_dedup = df_clean[df_clean["text"].isin(dedup_texts)]
+        df_clean.reset_index(drop=True, inplace=True)
+        df_clean["id"] = df_clean.index + 1
+        df_clean = df_clean[["id", "url", "source","title","text"]]
+        df_clean.to_csv(self.output_path, index=False)
 
-        df_dedup.to_csv(output_file, index=False)
-        print(f"\n✅ Final cleaned corpus saved to {output_file}")
-        print(f"Total unique chunks: {len(df_dedup)}")
+        print(f"\n✅ Clean corpus saved in: {self.output_path}")
+        print(f"Total cleaned documents: {len(df_clean)}")
 
 
 if __name__ == "__main__":
-    cleaner = CleanCorpus(chunk_size=400, similarity_threshold=0.92)
-    cleaner.process(INPUT_PATH, OUTPUT_PATH)
+    preprocessor = TextPreprocessor(min_word_count=300)
+    preprocessor.process()
+
+# Can reuse the same class for other files”:
+# <
+# preprocessor = TextPreprocessor(
+#     min_word_count=300,
+#     input_filename="cloud_architecture_web_scraper_output.csv",
+#     output_filename="cloud_architecture_cleaned_corpus.csv",
+#     )
+# preprocessor.process()
+# >
 
 # Run it like this - 
 # python -m src.data_preprocessing.text_preprocessor
