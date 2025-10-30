@@ -1,14 +1,16 @@
 # src/data_acquisition/web/web_scrapper.py
 import os
-import re
+import json
+import hashlib
 import requests
+from datetime import datetime, timezone
 from bs4 import BeautifulSoup
 import pandas as pd
 from urllib.parse import urlparse
 from requests_html import HTMLSession
-import urllib.robotparser
 import time
 import random
+from tqdm import tqdm
 from pathlib import Path
 
 from src.data_acquisition.web.web_utils import (
@@ -16,7 +18,7 @@ from src.data_acquisition.web.web_utils import (
 )
 
 from src.data_acquisition.web.web_constants import (
-    URL_DISCOVERY_OUTPUT, WEB_SCRAPER_OUTPUT, JS_REQUIRED_DOMAINS , REQUEST_TIMEOUT, USER_AGENT
+    URL_DISCOVERY_OUTPUT, WEB_SCRAPPER_HISTORY,WEB_SCRAPER_OUTPUT, JS_REQUIRED_DOMAINS , REQUEST_TIMEOUT, USER_AGENT
 )
 
 # Set the proper output path
@@ -26,19 +28,45 @@ RAW_PROCESSED_DIR = Path(__file__).parents[3] / "data" / "processed"
 RAW_WEB_DIR.mkdir(parents=True, exist_ok=True)
 RAW_PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
-INPUT_PATH = RAW_WEB_DIR / URL_DISCOVERY_OUTPUT
-OUTPUT_PATH = RAW_PROCESSED_DIR / WEB_SCRAPER_OUTPUT
-
-
 class WebContentExtractor:
-    def __init__(self, filter_fn, request_timeout=REQUEST_TIMEOUT, delay_range=(1.5, 3.5)):
+    def __init__(self, filter_fn, request_timeout=REQUEST_TIMEOUT, delay_range=(1.5, 3.5), recrawl_days=7,input_filename=URL_DISCOVERY_OUTPUT, history_filename= WEB_SCRAPPER_HISTORY,output_filename=WEB_SCRAPER_OUTPUT):
         """
         filter_fn: function that takes a string and returns filtered string
+        recrawl_days: re-crawl a URL only if older than this many days
         """
         self.filter_fn = filter_fn
         self.request_timeout = request_timeout
         self.delay_range = delay_range
+        self.recrawl_days = recrawl_days
 
+        self.input_path = RAW_WEB_DIR / input_filename
+        self.history_path = RAW_WEB_DIR / history_filename
+        self.output_path = RAW_PROCESSED_DIR / output_filename
+
+        self.history = self._load_history()
+    
+    def _load_history(self):
+        if self.history_path.exists():
+            with open(self.history_path, "r") as f:
+                return json.load(f)
+        return {}
+
+    def _save_history(self):
+        with open(self.history_path, "w") as f:
+            json.dump(self.history, f, indent=2)
+    
+    def get_content_hash(self,content: str) -> str:
+        return hashlib.sha256(content.encode("utf-8")).hexdigest()
+    
+    def is_recently_crawled(self, url):
+        """Check if the URL was crawled recently"""
+        if url not in self.history:
+            return False
+        try:
+            last_crawled = datetime.fromisoformat(self.history[url]["last_crawled"])
+            return (datetime.now(timezone.utc) - last_crawled).days < self.recrawl_days
+        except Exception:
+            return False
 
     def get_raw_markdown_urls(self, repo_url):
         user_repo = "/".join(urlparse(repo_url).path.strip("/").split("/")[:2])
@@ -92,6 +120,7 @@ class WebContentExtractor:
                     pass
         return html
 
+    # -------------------- Extraction ---------------------
     def extract_text(self, html):
         """Extract clean text from HTML."""
         soup = BeautifulSoup(html, "html.parser")
@@ -105,7 +134,7 @@ class WebContentExtractor:
                 texts.append(text)
         return "\n".join(texts)
 
-    def process_url(self, url, source):
+    def process_url(self, url, source,title=""):
         """Fetch, extract, and filter content from a URL"""
         if is_medium_url(url):
             print(f"[SKIP] Skipping Medium URL: {url}")
@@ -114,50 +143,88 @@ class WebContentExtractor:
         if not can_fetch(url):
             print(f"[SKIP] Disallowed by robots.txt: {url}")
             return None
-
+        
         if is_github_repo(url):
             print(f"Fetching GitHub Markdown: {url}")
             for raw_url in self.get_raw_markdown_urls(url):
                 content = self.fetch_markdown(raw_url)
                 filtered = self.filter_fn(content)
+
                 if filtered.strip():
-                    return {"url": raw_url, "source": source, "title": filtered.split("\n")[0], "content": filtered}
+                    return {"url": raw_url, "source": source, "title": title, "content": filtered}
             return None
 
         print(f"Fetching: {url}")
         html = self.fetch_html(url)
         if not html:
             return None
-
+        
         content = self.extract_text(html)
         filtered = self.filter_fn(content)
         if not filtered.strip():
             print(f"[SKIP] No relevant content for {url}")
             return None
 
-        return {"url": url, "source": source, "title": filtered.split("\n")[0], "content": filtered}
+        title = filtered.split("\n")[0] if not title else title
+        return {"url": url, "source": source, "title": title, "content": filtered}
 
-    def extract_from_csv(self, input_file, output_file):
-        df_urls = pd.read_csv(input_file)
+    # Incremental Extraction to CSV
+    def extract_from_csv(self):
+        df_urls = pd.read_csv(self.input_path)
         corpus = []
 
-        for idx, row in df_urls.iterrows():
-            result = self.process_url(row['url'], row['source'])
+        for idx, row in tqdm(df_urls.iterrows(), total=len(df_urls), desc="Crawling Progress", unit="url"):
+            url = row["url"]
+            source = row.get("source", "")
+            title = row.get("title", "")
+
+            if self.history.get(url) and self.is_recently_crawled(url):
+                tqdm.write(f"[SKIP] Recently crawled: {url}")
+                continue
+
+            result = self.process_url(url,source,title)
             if result:
+                new_hash = self.get_content_hash(result["content"])
+                old_hash = self.history.get(url, {}).get("content_hash")
+                if new_hash == old_hash:
+                    tqdm.write(f"[SKIP] No content change for {url}")
+                    continue
+            
+                self.history[url] = {
+                    "last_crawled": datetime.now(timezone.utc).isoformat(),
+                    "content_hash": new_hash
+                    }
+                self._save_history()
                 corpus.append(result)
+
             time.sleep(random.uniform(*self.delay_range))
 
-        df = pd.DataFrame(corpus)
-        df.to_csv(output_file, index=False)
-        # df.to_csv(output_file, mode='a', index=False, header=not os.path.exists(output_file))
-        print(f"\n✅ Saved {len(df)} filtered pages to {output_file}")
+        # Incremental save to avoid overwriting
+        if corpus:
+            df_new = pd.DataFrame(corpus)
+            df_new = pd.DataFrame(corpus).drop_duplicates(subset=["url"]) # Rare case with current setup
+            df_new.to_csv(self.output_path, mode='a', index=False, header=not os.path.exists(self.output_path))
+
+        tqdm.write(f"✅ Completed crawling. Total new content: {len(corpus)}")
 
 
 # ---------- Main ----------
 if __name__ == "__main__":
     from src.data_acquisition.web.content_filter import filter_system_design_content
     extractor = WebContentExtractor(filter_fn=filter_system_design_content)
-    extractor.extract_from_csv(INPUT_PATH, OUTPUT_PATH)
+    extractor.extract_from_csv()
+
+# Can reuse the same class for other files and other filter function”:
+# <
+# from src.data_acquisition.web.content_filter import filter_cloud_architecture_content
+# extractor = WebContentExtractor(
+#     filter_fn=filter_cloud_architecture_content,
+#     input_filename="cloud_architecture_urls.csv",
+#     output_filename="cloud_architecture_corpus.csv",
+#     history_filename="cloud_architecture_history.json",
+# )
+# extractor.extract_from_csv()
+# >
 
 # Run it like this - 
 # python -m src.data_acquisition.web.web_scrapper
