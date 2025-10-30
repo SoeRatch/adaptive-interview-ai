@@ -11,11 +11,12 @@ def filter_system_design_content(text: str) -> str:
     - Paragraph is long enough (to avoid dropping actual content)
     - Drop paragraphs with blacklisted/commercial words
     """
-    filtered_lines = []
     # skip empty or trivially short raw content
     if not isinstance(text, str) or len(text) < 100:
-        return filtered_lines
+        return ''
 
+    filtered_lines = []
+    
     for line in text.splitlines():
         line_lower = line.lower().strip()
         if not line_lower:
