@@ -214,7 +214,13 @@ class WebContentExtractor:
         if corpus:
             self._save_history()
             df_new = pd.DataFrame(corpus).drop_duplicates(subset=["url"]) # Rare case with current setup
-            df_new.to_csv(self.output_path, mode='a', index=False, header=not os.path.exists(self.output_path))
+
+            write_header = (
+                not self.output_path.exists()  # file doesn't exist
+                or os.stat(self.output_path).st_size == 0  # file exists but empty
+                )
+
+            df_new.to_csv(self.output_path, mode='a', index=False, header=write_header,encoding='utf-8')
 
         tqdm.write(f"✅ Completed crawling. Total new content: {len(corpus)}")
 
