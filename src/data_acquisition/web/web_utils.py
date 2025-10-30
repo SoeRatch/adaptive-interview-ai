@@ -2,6 +2,12 @@
 import re
 from urllib.parse import urlparse, urljoin
 import urllib.robotparser
+import requests
+from urllib.parse import urlparse
+
+from src.data_acquisition.web.web_constants import (
+    REQUEST_TIMEOUT
+)
 
 def is_valid_url(url: str) -> bool:
     parsed = urlparse(url)
@@ -19,14 +25,23 @@ def is_html_link(url: str) -> bool:
 
 def can_fetch(url: str) -> bool:
     """Check if crawling is allowed by robots.txt."""
-    rp = urllib.robotparser.RobotFileParser()
-    domain = f"{urlparse(url).scheme}://{urlparse(url).netloc}/robots.txt"
-    rp.set_url(domain)
+    parsed = urlparse(url)
+    domain = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
     try:
-        rp.read()
+        res = requests.get(domain, timeout=REQUEST_TIMEOUT)
+        if res.status_code >= 400:
+            # If robots.txt not accessible, assume allowed
+            return True
+        
+        rp = urllib.robotparser.RobotFileParser()
+        rp.parse(res.text.splitlines())
         return rp.can_fetch("*", url)
-    except Exception:
-        return True  # assume allowed if robots.txt fails
+    except requests.exceptions.Timeout:
+        print(f"[WARN] robots.txt request timed out for {domain}, assuming allowed.")
+        return True
+    except Exception as e:
+        print(f"[WARN] Error checking robots.txt for {domain}: {e}")
+        return True
     
 def is_medium_url(url: str) -> bool:
      return "medium.com" in urlparse(url).netloc
