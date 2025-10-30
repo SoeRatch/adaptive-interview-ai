@@ -12,8 +12,11 @@ KEYWORDS = [
 ]
 
 # Output file names
-URL_DISCOVERY_OUTPUT = "system_design_sources.csv"
-WEB_SCRAPER_OUTPUT = "system_design_corpus.csv"
+# URL_DISCOVERY_OUTPUT = "system_design_sources.csv"
+# WEB_SCRAPER_OUTPUT = "system_design_corpus.csv"
+URL_PROGRESS_FILE = "url_discovery_progress.json"
+URL_DISCOVERY_OUTPUT = "web_sources.csv"
+WEB_SCRAPER_OUTPUT = "web_scraper_output.csv"
 
 # Limits, timeout, and headers
 MAX_LINKS_PER_SOURCE = 100
