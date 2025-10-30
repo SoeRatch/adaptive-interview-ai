@@ -1,5 +1,6 @@
 # src/data_acquisition/web/web_scrapper.py
 import os
+import re
 import json
 import hashlib
 import requests
@@ -7,7 +8,6 @@ from datetime import datetime, timezone
 from bs4 import BeautifulSoup
 import pandas as pd
 from urllib.parse import urlparse
-from requests_html import HTMLSession
 import time
 import random
 from tqdm import tqdm
@@ -18,7 +18,7 @@ from src.data_acquisition.web.web_utils import (
 )
 
 from src.data_acquisition.web.web_constants import (
-    URL_DISCOVERY_OUTPUT, WEB_SCRAPPER_HISTORY,WEB_SCRAPER_OUTPUT, JS_REQUIRED_DOMAINS , REQUEST_TIMEOUT, USER_AGENT
+    URL_DISCOVERY_OUTPUT, WEB_SCRAPPER_HISTORY,WEB_SCRAPER_OUTPUT, REQUEST_TIMEOUT, USER_AGENT
 )
 
 # Set the proper output path
@@ -29,7 +29,15 @@ RAW_WEB_DIR.mkdir(parents=True, exist_ok=True)
 RAW_PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
 class WebContentExtractor:
-    def __init__(self, filter_fn, request_timeout=REQUEST_TIMEOUT, delay_range=(1.5, 3.5), recrawl_days=7,input_filename=URL_DISCOVERY_OUTPUT, history_filename= WEB_SCRAPPER_HISTORY,output_filename=WEB_SCRAPER_OUTPUT):
+    def __init__(
+            self,
+            filter_fn,
+            request_timeout=REQUEST_TIMEOUT,
+            delay_range=(0.5, 1.5),
+            recrawl_days=7,
+            input_filename=URL_DISCOVERY_OUTPUT,
+            history_filename= WEB_SCRAPPER_HISTORY,
+            output_filename=WEB_SCRAPER_OUTPUT):
         """
         filter_fn: function that takes a string and returns filtered string
         recrawl_days: re-crawl a URL only if older than this many days
@@ -71,7 +79,7 @@ class WebContentExtractor:
     def get_raw_markdown_urls(self, repo_url):
         user_repo = "/".join(urlparse(repo_url).path.strip("/").split("/")[:2])
         branches = ["main", "master"]
-        filenames = ["README.md", "readme.md"]
+        filenames = ["README.md", "readme.md", "docs/README.md", "src/README.md"]
         return [f"https://raw.githubusercontent.com/{user_repo}/{branch}/{filename}"
                 for branch in branches for filename in filenames]
 
@@ -86,12 +94,9 @@ class WebContentExtractor:
         return ""
 
     def fetch_html(self, url):
-        """Fetch HTML with fallback to JS rendering if needed."""
-        domain = urlparse(url).netloc
+        """Fetch HTML content using plain requests (no JS rendering)."""
         headers = {"User-Agent": USER_AGENT}
         html = ""
-
-        # --- Step 1: Try normal request ---
         try:
             res = requests.get(url, headers=headers, timeout=self.request_timeout)
             res.raise_for_status()
@@ -99,25 +104,6 @@ class WebContentExtractor:
         except Exception as e:
             print(f"[ERROR] Could not fetch {url}: {e}")
 
-        # --- Step 2: Decide if JS rendering is needed ---
-        js_render_needed = (
-            domain in JS_REQUIRED_DOMAINS or len(html) < 1000
-        )
-
-        if js_render_needed:
-            print(f"[INFO] Using JS rendering for {domain}")
-            try:
-                session = HTMLSession()
-                r = session.get(url, timeout=self.request_timeout)
-                r.html.render(timeout=25, sleep=2)
-                html = r.html.html
-            except Exception as e:
-                print(f"[WARN] JS rendering unavailable or failed for {url}: {e}")
-            finally:
-                try:
-                    session.close()
-                except:
-                    pass
         return html
 
     # -------------------- Extraction ---------------------
@@ -132,7 +118,10 @@ class WebContentExtractor:
             text = tag.get_text(strip=True)
             if text:
                 texts.append(text)
-        return "\n".join(texts)
+
+        clean_text = "\n".join(texts)
+        # replaces any sequence of multiple newlines (\n+) with just one newline (\n)
+        return re.sub(r'\n+', '\n', clean_text).strip()
 
     def process_url(self, url, source,title=""):
         """Fetch, extract, and filter content from a URL"""
@@ -172,6 +161,7 @@ class WebContentExtractor:
     def extract_from_csv(self):
         df_urls = pd.read_csv(self.input_path)
         corpus = []
+        now = datetime.now(timezone.utc).isoformat()
 
         for idx, row in tqdm(df_urls.iterrows(), total=len(df_urls), desc="Crawling Progress", unit="url"):
             url = row["url"]
@@ -179,6 +169,9 @@ class WebContentExtractor:
             title = row.get("title", "")
 
             if self.history.get(url) and self.is_recently_crawled(url):
+                self.history[url] = self.history.get(url, {})
+                self.history[url]["last_crawled"] = now
+                self.history[url]["status"] = "recent"
                 tqdm.write(f"[SKIP] Recently crawled: {url}")
                 continue
 
@@ -186,22 +179,40 @@ class WebContentExtractor:
             if result:
                 new_hash = self.get_content_hash(result["content"])
                 old_hash = self.history.get(url, {}).get("content_hash")
+
                 if new_hash == old_hash:
+                    self.history[url].update({
+                        "last_crawled": now,
+                        "status": "no_change"
+                        })
                     tqdm.write(f"[SKIP] No content change for {url}")
                     continue
             
                 self.history[url] = {
-                    "last_crawled": datetime.now(timezone.utc).isoformat(),
-                    "content_hash": new_hash
+                    "last_crawled": now,
+                    "content_hash": new_hash,
+                    "status": "success"
                     }
-                self._save_history()
                 corpus.append(result)
+            else:
+                # Failed or skipped crawl
+                self.history[url] = {
+                    "last_crawled": now,
+                    "content_hash": None,
+                    "status": "skipped"
+                }
+                tqdm.write(f"[SKIP] Failed or skipped crawling for {url}")
+            
+            # self._save_history()
+            # Save progress periodically
+            if idx % 10 == 0:
+                self._save_history()
 
             time.sleep(random.uniform(*self.delay_range))
 
         # Incremental save to avoid overwriting
         if corpus:
-            df_new = pd.DataFrame(corpus)
+            self._save_history()
             df_new = pd.DataFrame(corpus).drop_duplicates(subset=["url"]) # Rare case with current setup
             df_new.to_csv(self.output_path, mode='a', index=False, header=not os.path.exists(self.output_path))
 
@@ -212,7 +223,13 @@ class WebContentExtractor:
 if __name__ == "__main__":
     from src.data_acquisition.web.content_filter import filter_system_design_content
     extractor = WebContentExtractor(filter_fn=filter_system_design_content)
-    extractor.extract_from_csv()
+    try:
+        extractor.extract_from_csv()
+    except KeyboardInterrupt:
+        print("\nInterrupted by user. Saving progress...")
+        extractor._save_history()
+    
+
 
 # Can reuse the same class for other files and other filter function”:
 # <

@@ -12,19 +12,18 @@ KEYWORDS = [
 ]
 
 # Output file names
-# URL_DISCOVERY_OUTPUT = "system_design_sources.csv"
-# WEB_SCRAPER_OUTPUT = "system_design_corpus.csv"
 URL_PROGRESS_FILE = "url_discovery_progress.json"
 URL_DISCOVERY_OUTPUT = "web_sources.csv"
+WEB_SCRAPPER_HISTORY = "web_crawl_history.json"
 WEB_SCRAPER_OUTPUT = "web_scraper_output.csv"
 
 # Limits, timeout, and headers
 MAX_LINKS_PER_SOURCE = 100
 REQUEST_TIMEOUT = 10
-USER_AGENT = "Mozilla/5.0 (compatible; TopicModelBot/1.0)"
+USER_AGENT = "Mozilla/5.0 (compatible; TopicModelBot/1.1)"
 
 # Domains that require JS rendering
-JS_REQUIRED_DOMAINS = []
+# JS_REQUIRED_DOMAINS = []
 
 
 # -----------------------------
@@ -83,7 +82,7 @@ UNWANTED_KEYWORDS = [
     "subscribe", "advert", "sponsor", "free", "buy", "purchase",
     "register", "sign up", "promo", "discount", "testimonial",
     "learn more", "contact us", "about us", "cookie policy",
-    "newsletter", "privacy policy", "terms of service"
+    "newsletter", "privacy policy", "terms of service", "check out", "course"
 ]
 
 MIN_PARAGRAPH_LENGTH = 40

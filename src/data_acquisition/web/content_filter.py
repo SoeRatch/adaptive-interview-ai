@@ -16,17 +16,27 @@ def filter_system_design_content(text: str) -> str:
         return ''
 
     filtered_lines = []
+
+    # Replace multiple spaces/tabs with single space
+    text = re.sub(r'[ \t]+', ' ', text)
+    
+    # Replace 3+ line breaks with 2 (paragraph separator)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    
+    # Strip trailing spaces/newlines
+    text = text.strip()
+
     
     for line in text.splitlines():
         line_lower = line.lower().strip()
         if not line_lower:
             continue
 
-        # Skip obvious commercial / navigational content
+        # Skip promotional or irrelevant text
         if any(bad in line_lower for bad in UNWANTED_KEYWORDS):
             continue
 
-        # Keep if keyword exists
+        # Keep if contains relevant keywords
         if any(kw in line_lower for kw in RELEVANT_KEYWORDS):
             filtered_lines.append(line)
         
@@ -34,4 +44,10 @@ def filter_system_design_content(text: str) -> str:
         elif len(line_lower) >= MIN_PARAGRAPH_LENGTH:
             filtered_lines.append(line)
 
-    return "\n".join(filtered_lines)
+    # Remove duplicates, join cleanly
+    filtered_lines = list(dict.fromkeys(filtered_lines))
+
+    # Join back preserving paragraph structure
+    cleaned_text = "\n".join(filtered_lines)
+    cleaned_text = re.sub(r'\n{3,}', '\n\n', cleaned_text).strip()  # ensure consistent spacing
+    return cleaned_text
