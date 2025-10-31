@@ -80,8 +80,8 @@ class TextChunker:
                 })
 
         chunked_df = pd.DataFrame(all_chunks)
-        chunked_df["chunk_id"] = range(1, len(chunked_df) + 1)
-        chunked_df = chunked_df[["chunk_id", "source_id", "url", "source", "title", "text"]] # reorder
+        chunked_df["id"] = range(1, len(chunked_df) + 1) #chunk_id
+        chunked_df = chunked_df[["id", "source_id", "url", "source", "title", "text"]] # reorder
         chunked_df.to_csv(self.output_path, index=False)
 
         print(f"\n✅ Chunking complete.")
