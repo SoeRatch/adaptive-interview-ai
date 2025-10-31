@@ -41,7 +41,7 @@ class TopicModelTrainer:
             ):
         """
         Args:
-            output_dir (str): Directory to save the trained BERTopic model.
+            model_filename (str): filename to save the trained BERTopic model.
             language (str): Language parameter for BERTopic.
         """
         self.input_path = PROCESSED_DIR / input_filename
