@@ -47,13 +47,14 @@ class EmbeddingGenerator:
         batch_size: int = 32,
         use_cache: bool = True
     ):
-        self.model_name = model_name
         self.input_path = PROCESSED_DIR / input_filename
         self.embeddings_path = EMBEDDINGS_DIR / embeddings_filename
         self.model_path = MODEL_DIR / model_filename
+
         self.batch_size = batch_size
         self.use_cache = use_cache
 
+        self.model_name = model_name
         print(f"\n[Init] Loading embedding model - {model_name}")
         self.model = SentenceTransformer(model_name)
 
@@ -64,8 +65,16 @@ class EmbeddingGenerator:
             data = np.load(self.embeddings_path, allow_pickle=True)
             return data["embeddings"]
 
+        # Load input data
         df = pd.read_csv(self.input_path)
-        documents = df["text"].dropna().astype(str).tolist()
+
+        # sanity guard
+        if df["text"].isnull().any():
+            print("[Warning] Null text values detected — dropping them.")
+            df = df.dropna(subset=["text"]).reset_index(drop=True)
+            
+        documents = df["text"].astype(str).tolist()
+        
         if not documents:
             raise ValueError("No valid documents found for embedding generation.")
 
