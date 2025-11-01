@@ -4,6 +4,10 @@ import os
 import logging
 from dotenv import load_dotenv
 from src.database.postgres_handler import PostgresHandler
+from src.topic_modeling.constants import (
+    TOPIC_METADATA_TABLE,
+    TOPIC_DOCUMENT_TABLE
+)
 
 load_dotenv()
 
@@ -25,7 +29,7 @@ def setup_schema():
 
     table_schemas = [
         (
-            "topic_metadata",
+            TOPIC_METADATA_TABLE,
             {
                 "id": "SERIAL PRIMARY KEY",
                 "model_topic_id": "INTEGER",
@@ -35,14 +39,15 @@ def setup_schema():
             },
         ),
         (
-            "topic_documents",
+            TOPIC_DOCUMENT_TABLE,
             {
                 "document_id": "SERIAL PRIMARY KEY",
                 "topic_id": "INTEGER REFERENCES topic_metadata(id)",
+                "topic_name": "TEXT",
+                "text": "TEXT",
                 "url": "TEXT",
                 "source": "TEXT",
-                "title": "TEXT",
-                "text": "TEXT"
+                "title": "TEXT"
             },
         ),
         (
@@ -56,6 +61,12 @@ def setup_schema():
 
     try:
         print("Starting database schema setup...")
+
+        print("Dropping existing tables...")
+        pg_handler.drop_tables(
+            [TOPIC_DOCUMENT_TABLE, TOPIC_METADATA_TABLE, "schema_version"], cascade=True
+        )
+        
         pg_handler.create_tables_in_order(table_schemas)
         print("✅ Database schema setup complete.")
     except Exception as e:
