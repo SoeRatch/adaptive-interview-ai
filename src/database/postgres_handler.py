@@ -135,6 +135,34 @@ class PostgresHandler:
             print(f"[ERROR] Failed to insert data into '{table_name}': {e}")
             raise
 
+    def insert_dataframe_returning_ids(self, df: pd.DataFrame, table_name: str, id_col: str = "id"):
+        """
+        Bulk insert a DataFrame into PostgreSQL and return inserted IDs.
+        """
+        if df.empty:
+            print(f"[WARN] No records to insert into '{table_name}'.")
+            return []
+
+        columns = list(df.columns)
+        values = [tuple(x) for x in df.to_numpy()]
+        insert_query = f"""
+            INSERT INTO {table_name} ({', '.join(columns)})
+            VALUES %s
+            RETURNING {id_col};
+        """
+
+        try:
+            with self._get_connection() as conn, conn.cursor() as cur:
+                execute_values(cur, insert_query, values)
+                ids = [row[0] for row in cur.fetchall()]
+                conn.commit()
+            print(f"✅ Inserted {len(df)} rows into '{table_name}' and returned IDs.")
+            return ids
+        except Exception as e:
+            print(f"[ERROR] Failed to insert data into '{table_name}': {e}")
+            raise
+
+
 
     # Utility
     def table_exists(self, table_name: str) -> bool:
