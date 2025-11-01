@@ -28,10 +28,6 @@ from src.topic_modeling.constants import (
 
 # Set the proper output path
 PROCESSED_DIR = Path(__file__).parents[2] / "data" / "processed"
-
-# EMBEDDINGS_DIR = Path(__file__).parents[2] / "data" / "embeddings"
-# EMBEDDINGS_DIR.mkdir(parents=True, exist_ok=True)
-
 MODEL_DIR = Path(__file__).parents[2] / "data" / "models"
 MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -53,7 +49,7 @@ class EmbeddingGenerator:
         self.batch_size = batch_size
         self.use_cache = use_cache
         self.embedding_model_name = embedding_model_name
-        self.storage = EmbeddingStorage()
+        self.storage = EmbeddingStorage(mode= "npz")
         self.save_mode = save_mode
 
         print(f"\n[Init] Loading embedding model - {embedding_model_name}")
@@ -97,8 +93,7 @@ class EmbeddingGenerator:
             documents=documents,
             urls=urls,
             sources=sources,
-            titles=titles,
-            mode=self.save_mode
+            titles=titles
         )
 
         return embeddings
