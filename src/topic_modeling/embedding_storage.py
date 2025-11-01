@@ -18,13 +18,15 @@ from src.topic_modeling.constants import (
 )
 
 class EmbeddingStorage:
-    def __init__(self, data_dir: str = "data/embeddings"):
+    def __init__(self, data_dir: str = "data/embeddings", mode: str = "npz"):
         """
         Args:
             data_dir (str): Local path to store embeddings or metadata.
+            mode(str): 'npz' or 'split'
         """
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.mode = mode
 
     # SAVE
     def save(
@@ -33,8 +35,7 @@ class EmbeddingStorage:
         documents: list[str],
         urls: list[str] = None,
         sources: list[str] = None,
-        titles: list[str] = None,
-        mode: str = "npz"
+        titles: list[str] = None
     ):
         """
         Save embeddings and metadata.
@@ -42,9 +43,8 @@ class EmbeddingStorage:
             embeddings: np.ndarray of shape (n_docs, n_dim)
             documents: list of text docs
             urls, sources, titles: optional metadata
-            mode: 'npz', 'split', or 'vector_db'
         """
-        if mode == "npz":
+        if self.mode == "npz":
             np.savez_compressed(
                 self.data_dir / EMBEDDINGS_OUTPUT_NPZ,
                 embeddings=embeddings,
@@ -59,7 +59,7 @@ class EmbeddingStorage:
             # It applies ZIP compression internally, resulting in smaller file size than a plain .npy.
             # Instead of saving embeddings.npy, ids.npy, urls.npy, etc. separately, save just one file
 
-        elif mode == "split":
+        elif self.mode == "split":
             np.save(self.data_dir / EMBEDDINGS_OUTPUT_NPY, embeddings)
             meta_df = pd.DataFrame({
                 "text": documents,
@@ -84,9 +84,11 @@ class EmbeddingStorage:
         split_embeddings = self.data_dir / EMBEDDINGS_OUTPUT_NPY
         split_meta = self.data_dir / EMBEDDINGS_OUTPUT_METADATA_PARQUET
 
-        if npz_path.exists():
+        if self.mode == "npz" and npz_path.exists():
             emb_data = np.load(npz_path, allow_pickle=True)
-            print(f"Loaded data from {npz_path}")
+            if emb_data is None:
+                raise ValueError(f"Embeddings not found in file {npz_path}.")
+            print(f"Loaded embedding data from {npz_path}")
             return {
                 "embeddings": emb_data["embeddings"],
                 "documents": emb_data["documents"],
@@ -95,10 +97,12 @@ class EmbeddingStorage:
                 "titles": emb_data["titles"] if "titles" in emb_data.files else None,
             }
 
-        elif split_embeddings.exists() and split_meta.exists():
+        elif self.mode == "split" and split_embeddings.exists() and split_meta.exists():
             embeddings = np.load(split_embeddings, mmap_mode="r")
             meta_df = pd.read_parquet(split_meta)
-            print(f"Loaded embeddings.npy and metadata.parquet from {self.data_dir}")
+            if embeddings is None:
+                raise ValueError(f"Embeddings not found in {self.data_dir} directory.")
+            print(f"Loaded {EMBEDDINGS_OUTPUT_NPY} and {EMBEDDINGS_OUTPUT_METADATA_PARQUET} from {self.data_dir} directory")
             return {
                 "embeddings": embeddings,
                 "documents": meta_df["text"].tolist(),
@@ -108,6 +112,6 @@ class EmbeddingStorage:
             }
 
         else:
-            raise FileNotFoundError(f"No embedding data found in {self.data_dir}")
+            raise FileNotFoundError(f"No embedding data found in {self.data_dir} for {self.mode} mode")
 
 
