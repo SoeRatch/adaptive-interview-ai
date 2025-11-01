@@ -163,6 +163,30 @@ class PostgresHandler:
             raise
 
 
+    def fetch_all(self, query: str, params: tuple = None) -> list[dict]:
+        """
+        Execute a SELECT query and return all rows as a list of dictionaries.
+
+        Args:
+            query (str): The SQL SELECT query to execute.
+            params (tuple, optional): Parameters for the SQL query.
+
+        Returns:
+            list[dict]: A list of rows, each represented as a dictionary.
+        """
+        try:
+            with self._get_connection() as conn, conn.cursor() as cur:
+                cur.execute(query, params)
+                # Extract column names
+                columns = [desc[0] for desc in cur.description]
+                rows = cur.fetchall()
+                result = [dict(zip(columns, row)) for row in rows]
+            print(f"✅ Fetched {len(result)} rows from query: {query[:80]}{'...' if len(query) > 80 else ''}")
+            return result
+        except Exception as e:
+            print(f"[ERROR] Failed to fetch data: {e}")
+            raise
+
 
     # Utility
     def table_exists(self, table_name: str) -> bool:
