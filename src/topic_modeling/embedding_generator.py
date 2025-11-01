@@ -21,6 +21,7 @@ from tqdm import tqdm
 
 from src.topic_modeling.constants import (
     CHUNKED_CORPUS_OUTPUT,
+    EMBEDDING_MODEL_NAME,
     EMBEDDINGS_OUTPUT,
     EMBEDDING_MODEL_OUTPUT
 )
@@ -40,7 +41,7 @@ class EmbeddingGenerator:
 
     def __init__(
         self,
-        model_name: str = "all-MiniLM-L6-v2",
+        embedding_model_name: str = EMBEDDING_MODEL_NAME,
         input_filename: str = CHUNKED_CORPUS_OUTPUT,
         embeddings_filename: str = EMBEDDINGS_OUTPUT,
         model_filename: str = EMBEDDING_MODEL_OUTPUT,
@@ -50,13 +51,12 @@ class EmbeddingGenerator:
         self.input_path = PROCESSED_DIR / input_filename
         self.embeddings_path = EMBEDDINGS_DIR / embeddings_filename
         self.model_path = MODEL_DIR / model_filename
-
         self.batch_size = batch_size
         self.use_cache = use_cache
+        self.embedding_model_name = embedding_model_name
 
-        self.model_name = model_name
-        print(f"\n[Init] Loading embedding model - {model_name}")
-        self.model = SentenceTransformer(model_name)
+        print(f"\n[Init] Loading embedding model - {embedding_model_name}")
+        self.model = SentenceTransformer(embedding_model_name)
 
     def generate_embeddings(self) -> np.ndarray:
         """Generate or load cached embeddings for text documents."""
@@ -111,7 +111,7 @@ class EmbeddingGenerator:
     def summary(self, embeddings: np.ndarray, df: pd.DataFrame):
         """Print useful summary for sanity check."""
         print("\n=== Embedding Summary ===")
-        print(f"Model Name      : {self.model_name}")
+        print(f"Model Name      : {self.embedding_model_name}")
         print(f"Documents       : {len(df)}")
         print(f"Embedding Dim   : {embeddings.shape[1] if embeddings.ndim > 1 else 'N/A'}")
         print(f"Embeddings File : {self.embeddings_path}")
@@ -122,7 +122,7 @@ class EmbeddingGenerator:
 if __name__ == "__main__":
     # Stage entry point for pipeline
     emb_gen = EmbeddingGenerator(
-        model_name="all-MiniLM-L6-v2",
+        embedding_model_name=EMBEDDING_MODEL_NAME,
         input_filename=CHUNKED_CORPUS_OUTPUT,
         embeddings_filename=EMBEDDINGS_OUTPUT,
         model_filename=EMBEDDING_MODEL_OUTPUT,
