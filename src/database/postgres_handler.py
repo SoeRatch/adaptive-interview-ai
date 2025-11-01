@@ -30,6 +30,40 @@ class PostgresHandler:
         """
         self.db_config = db_config
 
+    def execute_query(self, query: str, params: tuple = None):
+        """
+        Execute a raw SQL query (useful for deletes, updates, or maintenance ops).
+        Automatically commits changes.
+        """
+        try:
+            with self._get_connection() as conn, conn.cursor() as cur:
+                cur.execute(query, params)
+                conn.commit()
+                print(f"✅ Executed query: {query[:80]}{'...' if len(query) > 80 else ''}")
+        except Exception as e:
+            print(f"[ERROR] Failed to execute query: {e}")
+            raise
+    
+    def drop_table(self, table_name: str, cascade: bool = False):
+        """
+        Drop a table safely. Optionally use CASCADE to remove dependent objects.
+        """
+        query = f"DROP TABLE IF EXISTS {table_name} {'CASCADE' if cascade else ''};"
+        try:
+            with self._get_connection() as conn, conn.cursor() as cur:
+                cur.execute(query)
+                conn.commit()
+            print(f"✅ Dropped table '{table_name}'{' (with CASCADE)' if cascade else ''}.")
+        except Exception as e:
+            print(f"[ERROR] Failed to drop table '{table_name}': {e}")
+            raise
+    
+    def drop_tables(self, tables: list[str], cascade: bool = False):
+        """
+        Drop multiple tables safely in order.
+        """
+        for table in tables:
+            self.drop_table(table, cascade=cascade)
 
     # Connection Management
     def _get_connection(self):
