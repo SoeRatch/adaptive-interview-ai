@@ -27,6 +27,7 @@ from src.topic_modeling.constants import (
     CHUNKED_CORPUS_OUTPUT,
     EMBEDDING_MODEL_NAME,
     EMBEDDINGS_OUTPUT,
+    EMBEDDING_MODEL_OUTPUT,
     TOPIC_MODEL_OUTPUT
 )
 
@@ -64,7 +65,15 @@ class TopicModelTrainer:
 
         # Setup embedding model (semantic)
         print(f"[Init] Setting up semantic embedding model for language: {language}")
+
         self.embedding_model = SentenceTransformer(self.embedding_model_name)
+
+        # In later stage i.e in production or reproducible MLOps pipelines, change to this
+        # if (MODEL_DIR / EMBEDDING_MODEL_OUTPUT).exists():
+        #     self.embedding_model = BERTopic.load(MODEL_DIR / EMBEDDING_MODEL_OUTPUT)
+        # else:
+        #     self.embedding_model = SentenceTransformer(self.embedding_model_name)
+
 
         # Setup vectorizer (for topic labeling only)
         stop_words = stopwords.words("english")
@@ -160,6 +169,7 @@ class TopicModelTrainer:
         # Train BERTopic model
         print(f"[Training] BERTopic model on {len(documents)} documents...")
         topics, probs = self.model.fit_transform(documents, embeddings)
+        # The embedding_model inside BERTopic is never invoked during training if embeddings are explicitly provided.
         print(f"[Done] Model trained. Unique topics: {len(set(topics))}")
 
         # Handle None probabilities(for unassigned documents)
