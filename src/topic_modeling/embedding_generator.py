@@ -17,20 +17,20 @@ import pandas as pd
 import joblib
 from pathlib import Path
 from sentence_transformers import SentenceTransformer
+from src.topic_modeling.embedding_storage import EmbeddingStorage
 from tqdm import tqdm
 
 from src.topic_modeling.constants import (
     CHUNKED_CORPUS_OUTPUT,
     EMBEDDING_MODEL_NAME,
-    EMBEDDINGS_OUTPUT,
     EMBEDDING_MODEL_OUTPUT
 )
 
 # Set the proper output path
 PROCESSED_DIR = Path(__file__).parents[2] / "data" / "processed"
 
-EMBEDDINGS_DIR = Path(__file__).parents[2] / "data" / "embeddings"
-EMBEDDINGS_DIR.mkdir(parents=True, exist_ok=True)
+# EMBEDDINGS_DIR = Path(__file__).parents[2] / "data" / "embeddings"
+# EMBEDDINGS_DIR.mkdir(parents=True, exist_ok=True)
 
 MODEL_DIR = Path(__file__).parents[2] / "data" / "models"
 MODEL_DIR.mkdir(parents=True, exist_ok=True)
@@ -43,27 +43,28 @@ class EmbeddingGenerator:
         self,
         embedding_model_name: str = EMBEDDING_MODEL_NAME,
         input_filename: str = CHUNKED_CORPUS_OUTPUT,
-        embeddings_filename: str = EMBEDDINGS_OUTPUT,
         model_filename: str = EMBEDDING_MODEL_OUTPUT,
         batch_size: int = 32,
-        use_cache: bool = True
+        use_cache: bool = True,
+        save_mode: str = "npz",  # npz or split
     ):
         self.input_path = PROCESSED_DIR / input_filename
-        self.embeddings_path = EMBEDDINGS_DIR / embeddings_filename
         self.model_path = MODEL_DIR / model_filename
         self.batch_size = batch_size
         self.use_cache = use_cache
         self.embedding_model_name = embedding_model_name
+        self.storage = EmbeddingStorage()
+        self.save_mode = save_mode
 
         print(f"\n[Init] Loading embedding model - {embedding_model_name}")
         self.model = SentenceTransformer(embedding_model_name)
 
-    def generate_embeddings(self) -> np.ndarray:
+    def generate_and_save_embeddings(self) -> np.ndarray:
         """Generate or load cached embeddings for text documents."""
-        if self.use_cache and self.embeddings_path.exists():
-            tqdm.write(f"[Cache] Found existing embeddings at {self.embeddings_path}. Loading...")
-            data = np.load(self.embeddings_path, allow_pickle=True)
-            return data["embeddings"]
+        # if self.use_cache and self.embeddings_path.exists():
+        #     tqdm.write(f"[Cache] Found existing embeddings at {self.embeddings_path}. Loading...")
+        #     data = np.load(self.embeddings_path, allow_pickle=True)
+        #     return data["embeddings"]
 
         # Load input data
         df = pd.read_csv(self.input_path)
@@ -74,6 +75,9 @@ class EmbeddingGenerator:
             df = df.dropna(subset=["text"]).reset_index(drop=True)
             
         documents = df["text"].astype(str).tolist()
+        urls = df.get("url", [None] * len(df)).tolist()
+        sources = df.get("source", [None] * len(df)).tolist()
+        titles = df.get("title", [None] * len(df)).tolist()
         
         if not documents:
             raise ValueError("No valid documents found for embedding generation.")
@@ -88,18 +92,15 @@ class EmbeddingGenerator:
         )
 
         # Save both embeddings + document IDs together
-        np.savez_compressed(
-            self.embeddings_path,
+        self.storage.save(
             embeddings=embeddings,
-            ids=df["id"].values,
-            urls=df["url"].values
+            documents=documents,
+            urls=urls,
+            sources=sources,
+            titles=titles,
+            mode=self.save_mode
         )
 
-        # np.savez_compressed() creates a compressed .npz that saves multiple NumPy arrays into one file.
-        # It applies ZIP compression internally, resulting in smaller file size than a plain .npy.
-        # Instead of saving embeddings.npy, ids.npy, urls.npy, etc. separately, save just one file
-
-        tqdm.write(f"[Done] Saved {len(embeddings)} embeddings to {self.embeddings_path}")
         return embeddings
 
     def save_model(self) -> str:
@@ -114,7 +115,6 @@ class EmbeddingGenerator:
         print(f"Model Name      : {self.embedding_model_name}")
         print(f"Documents       : {len(df)}")
         print(f"Embedding Dim   : {embeddings.shape[1] if embeddings.ndim > 1 else 'N/A'}")
-        print(f"Embeddings File : {self.embeddings_path}")
         print(f"Model File      : {self.model_path}")
         print("==========================\n")
 
@@ -124,14 +124,14 @@ if __name__ == "__main__":
     emb_gen = EmbeddingGenerator(
         embedding_model_name=EMBEDDING_MODEL_NAME,
         input_filename=CHUNKED_CORPUS_OUTPUT,
-        embeddings_filename=EMBEDDINGS_OUTPUT,
         model_filename=EMBEDDING_MODEL_OUTPUT,
         batch_size=32,
-        use_cache=True
+        use_cache=True,
+        save_mode= "npz" # npz or split
     )
 
     # Generate & save
-    embeddings = emb_gen.generate_embeddings()
+    embeddings = emb_gen.generate_and_save_embeddings()
     emb_gen.save_model()
 
     # Optional: show quick summary
