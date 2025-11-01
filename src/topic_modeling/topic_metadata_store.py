@@ -80,6 +80,10 @@ class TopicMetadataStore:
             df = df[["model_topic_id", "name", "representation", "count"]]
 
             # Insert data into PostgreSQL
+            # Clean existing metadata
+            if self.db.table_exists(self.topic_metadata_table):
+                 print(f"Cleaning table '{self.topic_metadata_table}' before insert...")
+                 self.db.execute_query(f"TRUNCATE TABLE {self.topic_metadata_table} RESTART IDENTITY CASCADE;")
             self.db.insert_dataframe(df, self.topic_metadata_table)
             print(f"✅ Stored {len(df)} topics in table '{self.topic_metadata_table}'.")
 
