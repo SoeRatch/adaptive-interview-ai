@@ -23,28 +23,25 @@ from nltk.corpus import stopwords
 import nltk
 nltk.download('stopwords')
 
+from src.topic_modeling.embedding_storage import EmbeddingStorage
 from src.topic_modeling.constants import (
     CHUNKED_CORPUS_OUTPUT,
     EMBEDDING_MODEL_NAME,
-    EMBEDDINGS_OUTPUT,
-    EMBEDDING_MODEL_OUTPUT,
     TOPIC_MODEL_OUTPUT
 )
 
 # Set the proper output path
 PROCESSED_DIR = Path(__file__).parents[2] / "data" / "processed"
-EMBEDDINGS_DIR = Path(__file__).parents[2] / "data" / "embeddings"
 
 MODEL_DIR = Path(__file__).parents[2] / "data" / "models"
 MODEL_DIR.mkdir(parents=True, exist_ok=True)
-
+EMBEDDINGS_DIR = Path(__file__).parents[2] / "data" / "embeddings"
 
 class TopicModelTrainer:
     def __init__(
             self,
             input_filename: str = CHUNKED_CORPUS_OUTPUT,
             embedding_model_name: str = EMBEDDING_MODEL_NAME,
-            embeddings_filename: str = EMBEDDINGS_OUTPUT,
             model_filename: str = TOPIC_MODEL_OUTPUT,
             language: str = "english",
             verbose: bool = True,
@@ -52,20 +49,20 @@ class TopicModelTrainer:
         """
         Args:
             input_filename (str): Preprocessed document chunks.
-            embeddings_filename (str): File containing precomputed embeddings.
+            embedding_model_name (str): Name of the embedding model
             model_filename (str): Output model file.
             language (str): Language for topic modeling.
         """
         self.input_path = PROCESSED_DIR / input_filename
         self.embedding_model_name = embedding_model_name
-        self.embeddings_path = EMBEDDINGS_DIR / embeddings_filename
         self.model_path = MODEL_DIR / model_filename
         self.language = language
         self.verbose = verbose
 
-        # Setup embedding model (semantic)
-        print(f"[Init] Setting up semantic embedding model for language: {language}")
+        self.storage = EmbeddingStorage(data_dir=EMBEDDINGS_DIR, mode= "npz")
 
+        # Setup embedding model (semantic)
+        print(f"[Init] Setting up semantic embedding model: {embedding_model_name}")
         self.embedding_model = SentenceTransformer(self.embedding_model_name)
 
         # In later stage i.e in production or reproducible MLOps pipelines, change to this
@@ -74,9 +71,8 @@ class TopicModelTrainer:
         # else:
         #     self.embedding_model = SentenceTransformer(self.embedding_model_name)
 
-
         # Setup vectorizer (for topic labeling only)
-        stop_words = stopwords.words("english")
+        stop_words = stopwords.words(self.language)
         self.vectorizer_model = CountVectorizer(
             stop_words=stop_words,
             lowercase=True,
@@ -84,7 +80,7 @@ class TopicModelTrainer:
             max_features=8000
         )
 
-        # UMAP for dimensionality reduction control
+        # UMAP configuration for dimensionality reduction control
         self.umap_model = UMAP(
             n_neighbors=15,
             n_components=5,
@@ -93,7 +89,7 @@ class TopicModelTrainer:
             random_state=42,
         )
 
-        # Create BERTopic with dual configuration
+        # Initialize BERTopic
         self.model = BERTopic(
             embedding_model=self.embedding_model,
             vectorizer_model=self.vectorizer_model,
@@ -101,13 +97,7 @@ class TopicModelTrainer:
             verbose=self.verbose,
         )
         print("[Init] BERTopic model initialized successfully.")
-
-    def clean_text(text: str) -> str:
-        """Clean text for topic word extraction (not for embeddings)."""
-        text = text.lower()
-        text = re.sub(r"[^a-z\s]", "", text)
-        text = re.sub(r"\s+", " ", text).strip()
-        return text
+        
     
     def update_documents_with_topics(self,df: pd.DataFrame, topics: list[int], probs: np.ndarray):
         """
@@ -129,8 +119,6 @@ class TopicModelTrainer:
         df["probability"] = probs
 
         # Overwrite the same input file
-        df.to_csv(self.input_path, index=False)
-
         temp_path = self.input_path.with_suffix(".tmp.csv")
         df.to_csv(temp_path, index=False)
         temp_path.replace(self.input_path)
@@ -155,16 +143,15 @@ class TopicModelTrainer:
             raise ValueError("No valid documents found for embedding generation.")
         
         # Load precomputed embeddings
-        data = np.load(self.embeddings_path, allow_pickle=False)
-        embeddings = data["embeddings"]
+        embeddings_data = self.storage.load()
+        embeddings = embeddings_data.get("embeddings")
+
         if embeddings is None:
-            raise ValueError(f"Embeddings not found in file {self.embeddings_path}.")
+            raise ValueError("Embeddings not found in loaded data.")
         
-        # Critical check - ensure documents and embeddings align
+        # Alignment check
         if len(documents) != embeddings.shape[0]:
-            raise ValueError(
-                f"Mismatch: {len(documents)} documents vs {embeddings.shape[0]} embeddings"
-                )
+            raise ValueError(f"Mismatch: {len(documents)} documents vs {embeddings.shape[0]} embeddings")
         
         # Train BERTopic model
         print(f"[Training] BERTopic model on {len(documents)} documents...")
@@ -194,7 +181,6 @@ if __name__ == "__main__":
     trainer = TopicModelTrainer(
         input_filename = CHUNKED_CORPUS_OUTPUT,
         embedding_model_name = EMBEDDING_MODEL_NAME,
-        embeddings_filename = EMBEDDINGS_OUTPUT,
         model_filename = TOPIC_MODEL_OUTPUT,
         language= "english",
         verbose=True,
