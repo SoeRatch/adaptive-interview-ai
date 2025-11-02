@@ -21,7 +21,12 @@ gensim
 sentence-transformers
 regex
 
-# LLMs / question generation (future)
+# VectorDB
+faiss-cpu
+pinecone
+qdrant-client
+
+# LLMs
 transformers
 langchain
 langchain-community
