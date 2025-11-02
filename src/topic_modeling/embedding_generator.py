@@ -54,6 +54,23 @@ class EmbeddingGenerator:
 
         print(f"\n[Init] Loading embedding model - {embedding_model_name}")
         self.model = SentenceTransformer(embedding_model_name)
+    
+    def encode(self, texts):
+        """
+        Generate embeddings for a list of input texts.
+        Used for ad-hoc queries during retrieval.
+        """
+        if isinstance(texts, str):
+            texts = [texts]
+        
+        embeddings = self.model.encode(
+            texts,
+            show_progress_bar=False,
+            convert_to_numpy=True,
+            normalize_embeddings=True
+        )
+        return np.array(embeddings, dtype="float32")
+
 
     def generate_and_save_embeddings(self) -> np.ndarray:
         """Generate or load cached embeddings for text documents."""
