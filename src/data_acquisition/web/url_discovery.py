@@ -149,7 +149,7 @@ class URLDiscovery:
             # Polite delay between sources
             time.sleep(random.uniform(1.5, 3.5))
 
-        print("\n✅ Completed all seed URLs.\nData saved to: {self.output_path}")
+        print(f"\n✅ Completed all seed URLs.\nData saved to: {self.output_path}")
 
 if __name__ == "__main__":
     crawler = URLDiscovery()
