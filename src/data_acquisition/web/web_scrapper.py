@@ -92,19 +92,23 @@ class WebContentExtractor:
         except Exception:
             return ""
         return ""
-
+    
     def fetch_html(self, url):
         """Fetch HTML content using plain requests (no JS rendering)."""
         headers = {"User-Agent": USER_AGENT}
-        html = ""
-        try:
-            res = requests.get(url, headers=headers, timeout=self.request_timeout)
-            res.raise_for_status()
-            html = res.text
-        except Exception as e:
-            print(f"[ERROR] Could not fetch {url}: {e}")
+        for attempt in range(3):
+            try:
+                res = requests.get(url, headers=headers, timeout=self.request_timeout)
+                res.raise_for_status()
+                return res.text
+            except requests.exceptions.RequestException as e:
+                wait_time = random.uniform(5 * (attempt + 1), 15 * (attempt + 1))
+                print(f"[WARN] Attempt {attempt+1} failed for {url}: {e}")
+                print(f"[BACKOFF] Waiting {wait_time:.1f}s before retrying...")
+                time.sleep(wait_time)
+        print(f"[ERROR] Giving up on {url}")
+        return ""
 
-        return html
 
     # -------------------- Extraction ---------------------
     def extract_text(self, html):
