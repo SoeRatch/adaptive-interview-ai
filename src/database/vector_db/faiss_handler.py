@@ -41,6 +41,8 @@ class FAISSHandler(VectorDBBase):
         """
         ids = np.array(ids).astype(np.int64)
         vectors = np.array(vectors, dtype="float32")
+        print(f"Length of ids-{len(ids)}")
+        print(f"Length of vectors-{vectors.shape[0]}")
 
         assert len(ids) == vectors.shape[0], "Number of IDs must match number of vectors"
         assert vectors.shape[1] == self.dim, f"Embedding dimensions mismatch (expected {self.dim})"

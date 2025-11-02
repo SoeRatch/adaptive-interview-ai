@@ -106,13 +106,17 @@ class TopicDocumentStore:
             f"TRUNCATE TABLE {self.topic_document_table} RESTART IDENTITY CASCADE;"
         )
 
+        # Step 1: Insert documents
         print("Inserting document-topic data into PostgreSQL...")
-        document_ids = self.pg.insert_dataframe_returning_ids(insert_df, self.topic_document_table, id_col="document_id")
+        self.pg.insert_dataframe(insert_df, self.topic_document_table)
         print(f"✅ Stored {len(insert_df)} documents in table '{self.topic_document_table}'.")
+        
+        # Step 2: Fetch document IDs
+        rows = self.pg.fetch_all("SELECT document_id FROM topic_documents ORDER BY document_id;")
+        document_ids = [r["document_id"] for r in rows]
         print(f"Sample inserted IDs: {document_ids[:5]}")
 
-
-        # Insert embeddings in Vector DB
+        # Step 3: Insert embeddings in Vector DB
         print("Storing embeddings in Vector DB...")
         self.vector_db.upsert_embeddings(ids=document_ids, vectors=embeddings)
         print(f"✅ Stored {len(document_ids)} embeddings in Vector DB ({self.vector_db.__class__.__name__}).")
