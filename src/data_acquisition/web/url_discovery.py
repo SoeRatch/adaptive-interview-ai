@@ -57,22 +57,7 @@ class URLDiscovery:
         }
         with open(self.progress_path, "w") as f:
             json.dump(self.progress, f, indent=2)
-    
-    def save_to_csv_incremental(self, results):
-        """Append seed results to CSV immediately and dedupe."""
-        # If expectation is under 10k links in total then current implementation is simple and safe.
-        # But later if we expect >10k links,then switch to append mode and dedupe once at the end.
-        df_new = pd.DataFrame(results)
-        if df_new.empty:
-            return 0
-        if self.output_path.exists():
-            df_existing = pd.read_csv(self.output_path)
-            df = pd.concat([df_existing, df_new], ignore_index=True)
-            df = df.drop_duplicates(subset=["url"])
-        else:
-            df = df_new.drop_duplicates(subset=["url"])
-        df.to_csv(self.output_path, index=False)
-        return len(df_new)
+
 
     def contains_keyword(self, url: str, anchor_text: str = "") -> bool:
         """Check if either the URL or its anchor text matches topic keywords."""
@@ -129,6 +114,37 @@ class URLDiscovery:
                 })
 
         return results
+    
+    def save_to_csv_incremental(self, results):
+        """Append seed results to CSV immediately and dedupe."""
+        # If expectation is under 10k links in total then current implementation is simple and safe.
+        # But later if we expect >10k links,then switch to append mode and dedupe once at the end.
+        df_new = pd.DataFrame(results)
+        if df_new.empty:
+            return 0
+        
+        # Write in append mode; only write header if file doesn't exist
+        df_new.to_csv(
+            self.output_path,
+            mode="a",
+            header=not self.output_path.exists(),
+            index=False
+        )
+
+        return len(df_new)
+    
+    def deduplicate_csv(self):
+        """Run this once after full crawl to remove duplicate URLs."""
+        if not self.output_path.exists():
+            print("[INFO] No output file to deduplicate.")
+            return
+
+        df = pd.read_csv(self.output_path)
+        before = len(df)
+        df = df.drop_duplicates(subset=["url"])
+        after = len(df)
+        df.to_csv(self.output_path, index=False)
+        print(f"[CLEANUP] Removed {before - after} duplicate URLs. Final count: {after}")
 
     def crawl_sources(self, max_links_per_source=MAX_LINKS_PER_SOURCE):
         """Run the crawler across all seed URLs with resume support."""
@@ -148,6 +164,9 @@ class URLDiscovery:
 
             # Polite delay between sources
             time.sleep(random.uniform(1.5, 3.5))
+        
+        # Deduplicate at the end once
+        self.deduplicate_csv()
 
         print(f"\n✅ Completed all seed URLs.\nData saved to: {self.output_path}")
 
