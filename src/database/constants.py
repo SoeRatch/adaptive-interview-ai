@@ -1,0 +1,2 @@
+FAISS_INDEX_FILEPATH = "data/vector_index/faiss.index"
+FAISS_INDEX_DIMENENSIONS = 384
