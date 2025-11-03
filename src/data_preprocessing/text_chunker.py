@@ -47,6 +47,7 @@ class TextChunker:
         self.output_path = PROCESSED_DIR / output_filename
 
         self.splitter = RecursiveCharacterTextSplitter(
+            separators=["\n\n", "\n", ". ", "? ", "! ", " "],
             chunk_size=self.chunk_size,
             chunk_overlap=self.chunk_overlap,
             length_function=len
