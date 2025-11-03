@@ -114,18 +114,29 @@ class WebContentExtractor:
     def extract_text(self, html):
         """Extract clean text from HTML."""
         soup = BeautifulSoup(html, "html.parser")
+
+        # Convert <br> to single line breaks
+        for br in soup.find_all("br"):
+            br.replace_with("\n")
+
         for tag in soup(["script", "style", "header", "footer", "nav", "aside"]):
             tag.decompose()
+
         title = soup.title.string.strip() if soup.title else ""
         texts = [title] if title else []
+
         for tag in soup.find_all(["h1", "h2", "h3", "p"]):
-            text = tag.get_text(strip=True)
+            # Makes sure inline breaks (like <br>) become \n within the same tag.
+            text = tag.get_text(separator="\n",strip=True)
             if text:
                 texts.append(text)
 
-        clean_text = "\n".join(texts)
-        # replaces any sequence of multiple newlines (\n+) with just one newline (\n)
-        return re.sub(r'\n+', '\n', clean_text).strip()
+        clean_text = "\n\n".join(texts) # keep 2 newlines between sections
+
+        # Normalize spacing but preserve paragraph breaks
+        clean_text = re.sub(r'\n{3,}', '\n\n', clean_text).strip()
+
+        return clean_text
 
     def process_url(self, url, source,title=""):
         """Fetch, extract, and filter content from a URL"""
