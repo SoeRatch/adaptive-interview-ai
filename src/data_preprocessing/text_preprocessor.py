@@ -51,35 +51,53 @@ class TextPreprocessor:
         """
         if not raw_text:
             return ""
+        
+        # 1. If the data came from a CSV or other writer that escaped newlines,
+        # convert literal backslash sequences into real newlines:
+        # e.g., turn "\\n\\n" -> "\n\n", and "\\r\\n" -> "\n"
+        # NOTE: do this before html.unescape because entities may include numeric newline entities.
+        raw_text = raw_text.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\r", "\n")
+        raw_text = raw_text.replace("\\t", "\t")
 
-        # 1. Decode HTML entities (&amp; → &)
+        # 2. Convert HTML numeric newline entity if present (common in some extractions)
+        raw_text = raw_text.replace("&#10;", "\n").replace("&#13;", "\n")
+
+        # 3. Decode HTML entities (&amp; -> &)
         text = html.unescape(raw_text)
 
-        # 2. Normalize line endings across different operating systems.
+        # 4. Normalize line endings across different operating systems.
         text = text.replace("\r\n", "\n").replace("\r", "\n")
 
-        # 3. Remove excessive blank lines but preserve paragraph separation
-        text = re.sub(r"\n{3,}", "\n\n", text)
+        # 5. Remove non-printable control characters (except newline & tab)
+        text = re.sub(r"[\x00-\x09\x0B-\x0C\x0E-\x1F\x7F]", "", text)
 
-        # 4. Remove non-printable characters (e.g., control chars)
-        text = re.sub(r"[\x00-\x1F\x7F]", "", text)
-
-        # 5. Remove URLs and special characters
+        # 6. Remove URLs and special characters
         text = re.sub(r"https?://\S+|www\.\S+", "", text)
 
-        # 6. Remove unwanted chars but keep common punctuation
-        # text = re.sub(r"[^a-zA-Z0-9\s]", " ", text)
+        # 7. Remove unwanted chars but keep common punctuation
         text = re.sub(r"[^\w\s.,!?%\-]", " ", text)
 
-        # 7. Fix space before punctuation for ex - "word , something" instead of "word, something"
+        # 8. Fix space before punctuation for ex - "word , something" -> "word, something"
         text = re.sub(r"\s+([.,!?%\-])", r"\1", text)
 
-        # 8. Collapse multiple spaces within lines
+        # 9. Collapse multiple spaces (but keep newlines)
+        # compress spaces/tabs inside lines but don't touch newlines
+        # We will clean per-line below (so this is mostly redundant but safe)
         text = re.sub(r"[ \t]{2,}", " ", text)
 
-        # 9. Normalize per-line whitespace but preserve blank lines
-        lines = [re.sub(r"\s+", " ", line).strip() for line in text.splitlines()]
+        # 10. Normalize per-line whitespace but preserve blank lines
+        lines = []
+        for line in text.splitlines():
+            if line.strip():  # non-empty line
+                line = re.sub(r"\s+", " ", line).strip()
+                lines.append(line)
+            else:
+                lines.append("")  # preserve blank line for detecting paragraph separator
+
         rebuilt = "\n".join(lines)
+        
+        # 9. Remove excessive blank lines but preserve paragraph separation
+        rebuilt = re.sub(r"\n{3,}", "\n\n", rebuilt).strip()
         return rebuilt
 
     
