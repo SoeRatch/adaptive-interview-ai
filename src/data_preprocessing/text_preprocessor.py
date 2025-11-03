@@ -47,7 +47,7 @@ class TextPreprocessor:
     def extract_clean_text(self, raw_text: str) -> str:
         """
         Normalize and clean extracted text (for web, PDF, or other sources).
-        Use this AFTER format-specific extraction (like BeautifulSoup, pdfminer, etc.).
+        while preserving semantic and structural cues (bullets, lists, paragraphs).
         """
         if not raw_text:
             return ""
@@ -56,36 +56,56 @@ class TextPreprocessor:
         # convert literal backslash sequences into real newlines:
         # e.g., turn "\\n\\n" -> "\n\n", and "\\r\\n" -> "\n"
         # NOTE: do this before html.unescape because entities may include numeric newline entities.
-        raw_text = raw_text.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\r", "\n")
-        raw_text = raw_text.replace("\\t", "\t")
+        raw_text = (
+            raw_text.replace("\\r\\n", "\n")
+            .replace("\\n", "\n")
+            .replace("\\r", "\n")
+            .replace("\\t", "\t")
+        )
 
         # 2. Convert HTML numeric newline entity if present (common in some extractions)
         raw_text = raw_text.replace("&#10;", "\n").replace("&#13;", "\n")
 
-        # 3. Decode HTML entities (&amp; -> &)
+        # 3. Normalize unicode punctuation
+        replacements = {
+            "•": "[BULLET] ",
+            "◦": "[BULLET] ",
+            "▪": "[BULLET] ",
+            "‣": "[BULLET] ",
+            "–": "-",       # en dash
+            "—": "-",       # em dash
+            "“": '"',
+            "”": '"',
+            "‘": "'",
+            "’": "'",
+            }
+        for k, v in replacements.items():
+            raw_text = raw_text.replace(k, v)
+
+        # 4. Decode HTML entities (&amp; -> &)
         text = html.unescape(raw_text)
 
-        # 4. Normalize line endings across different operating systems.
+        # 5. Normalize line endings across different operating systems.
         text = text.replace("\r\n", "\n").replace("\r", "\n")
 
-        # 5. Remove non-printable control characters (except newline & tab)
+        # 6. Remove non-printable control characters (except newline & tab)
         text = re.sub(r"[\x00-\x09\x0B-\x0C\x0E-\x1F\x7F]", "", text)
 
-        # 6. Remove URLs and special characters
+        # 7. Remove URLs and special characters
         text = re.sub(r"https?://\S+|www\.\S+", "", text)
 
-        # 7. Remove unwanted chars but keep common punctuation
-        text = re.sub(r"[^\w\s.,!?%\-]", " ", text)
+        # 8. Remove unwanted chars but keep common punctuation
+        # Keep word chars, spaces, and meaningful symbols like . , ! ? % - : / [BULLET]
+        text = re.sub(r"[^A-Za-z0-9\s.,!?%:\-\[\]\"'/]", " ", text)
 
-        # 8. Fix space before punctuation for ex - "word , something" -> "word, something"
+        # 9. Fix space before punctuation for ex - "word , something" -> "word, something"
         text = re.sub(r"\s+([.,!?%\-])", r"\1", text)
 
-        # 9. Collapse multiple spaces (but keep newlines)
+        # 10. Collapse multiple spaces
         # compress spaces/tabs inside lines but don't touch newlines
-        # We will clean per-line below (so this is mostly redundant but safe)
         text = re.sub(r"[ \t]{2,}", " ", text)
 
-        # 10. Normalize per-line whitespace but preserve blank lines
+        # 11. Normalize per-line whitespace but preserve blank lines
         lines = []
         for line in text.splitlines():
             if line.strip():  # non-empty line
