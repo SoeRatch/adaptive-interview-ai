@@ -23,37 +23,9 @@ def filter_system_design_content(text: str) -> str:
     if not isinstance(text, str) or len(text) < 100:
         return ''
 
-    # Normalize spacing
-    text = re.sub(r'[ \t]+', ' ', text) # Replace multiple spaces/tabs with single space
-    text = re.sub(r'\n{3,}', '\n\n', text) # Replace 3+ line breaks with 2 (paragraph separator)
-    
-    # Preserve paragraph breaks while cleaning UI noise
-    cleaned_lines = []
-    for line in text.splitlines():
-        line_stripped = line.strip()
-
-        if not line_stripped:
-            cleaned_lines.append("") # preserve blank lines for paragraph structure
-            continue
-
-        line_lower = line_stripped.lower()
-        line_words = line_lower.split()
-        
-        # Drop lines with less words and has a year but not actual sentences
-        if (
-            re.search(r'\b\d{4}\b', line_lower) and
-            len(line_words) < 5 and 
-            not re.search(r'[.!?]', line_lower)
-            ):
-            continue
-        
-        # Drop lines with less words and no punctuation
-        if len(line_words) < 5 and not re.search(r'[.!?]', line_lower):
-            continue
-
-        cleaned_lines.append(line_stripped)
-    text = "\n".join(cleaned_lines)
-
+    # Normalize spacing but preserve paragraph breaks
+    text = re.sub(r'[ \t]+', ' ', text)
+    text = re.sub(r'\n{3,}', '\n\n', text)
 
     # Split by paragraph (2+ newlines)
     paragraphs = re.split(r"\n{2,}", text)
@@ -62,7 +34,7 @@ def filter_system_design_content(text: str) -> str:
     for para in paragraphs:
         para_clean = para.strip()
         # Drop empty or trivial paragraphs
-        if not para_clean or len(para_clean.split()) < 3:
+        if not para_clean:
             continue
 
         para_lower = para_clean.lower()
@@ -94,6 +66,12 @@ def filter_system_design_content(text: str) -> str:
         elif (
             len(para_clean) >= MIN_PARAGRAPH_LENGTH or 
             len(para_lower.split()) >= MIN_PARAGRAPH_WORDS
+            ):
+            filtered_paragraphs.append(para_clean)
+        elif (
+            re.search(r"[A-Za-z0-9]", para_clean)
+            and filtered_paragraphs
+            and any(kw in filtered_paragraphs[-1].lower() for kw in RELEVANT_KEYWORDS)
             ):
             filtered_paragraphs.append(para_clean)
 

@@ -4,6 +4,7 @@ from urllib.parse import urlparse, urljoin
 import urllib.robotparser
 import requests
 from urllib.parse import urlparse
+from bs4 import BeautifulSoup
 
 from src.data_acquisition.web.web_constants import (
     REQUEST_TIMEOUT
@@ -52,3 +53,48 @@ def is_medium_url(url: str) -> bool:
 def is_github_repo(url: str) -> bool:
     parsed = urlparse(url)
     return "github.com" in parsed.netloc and re.match(r"^/[^/]+/[^/]+/?$", parsed.path)
+
+
+def remove_ui_noise(soup, debug=False):
+    """
+    Remove non-content UI elements like navbars, footers, ads, etc.
+    Fully safe version that handles decomposed tags gracefully.
+    """
+
+    if soup is None:
+        return soup
+
+    # Step 1: remove globally safe tags (these never hold main content)
+    for tag in soup(["script", "style", "noscript", "header", "footer", "nav", "aside", "form", "button","iframe"]):
+        tag.decompose()
+
+    # Step 2: remove noise *based on class/id*, but safely
+    UI_NOISE_PATTERNS = [
+        r"footer", r"navbar", r"advert", r"ads?", r"sponsor",
+        r"subscribe", r"login", r"signup", r"comment", r"feedback",
+        r"share", r"cookie", r"popup", r"banner", r"modal", r"promo"
+    ]
+    for t in soup.find_all(True):
+        try:
+            # Avoid removing structural containers
+            if t.find(["article", "main", "section"]):
+                continue
+
+            classes = " ".join(t.get("class", []))
+            cid = t.get("id", "")
+            label = f"{classes} {cid}".strip()
+
+            if not label:
+                continue
+
+            # If class/id looks like noise — remove it
+            if any(re.search(p, label, re.I) for p in UI_NOISE_PATTERNS):
+                # double-check it doesn’t contain headings or paragraphs
+                if t.find(["h1", "h2", "h3", "p"]):
+                    continue
+                t.decompose()
+
+        except Exception:
+            continue
+
+    return soup

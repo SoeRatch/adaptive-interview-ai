@@ -14,7 +14,7 @@ from tqdm import tqdm
 from pathlib import Path
 
 from src.data_acquisition.web.web_utils import (
-    can_fetch, is_medium_url, is_github_repo
+    can_fetch, is_medium_url, is_github_repo, remove_ui_noise
 )
 
 from src.data_acquisition.web.web_constants import (
@@ -113,28 +113,38 @@ class WebContentExtractor:
     # -------------------- Extraction ---------------------
     def extract_text(self, html):
         """Extract clean text from HTML."""
-        soup = BeautifulSoup(html, "html.parser")
-
-        # Convert <br> to single line breaks
-        for br in soup.find_all("br"):
-            br.replace_with("\n")
-
-        for tag in soup(["script", "style", "header", "footer", "nav", "aside"]):
+        soup = BeautifulSoup(html, "html.parser", from_encoding="utf-8")
+        
+        # soup = remove_ui_noise(soup)
+        for tag in soup(["script", "style", "noscript", "header", "footer", "nav", "aside", "form", "button","iframe"]):
             tag.decompose()
+
+        # Convert <br> and <hr> to line breaks for structure
+        for br in soup.find_all(["br", "hr"]):
+            br.replace_with("\n")
+        
+        # Treat lists properly
+        for li in soup.find_all("li"):
+            li.insert_before("\n• ")
+        
+        for inline_tag in soup.find_all(["strong", "b", "em", "i", "span", "u"]):
+            inline_tag.unwrap()
 
         title = soup.title.string.strip() if soup.title else ""
         texts = [title] if title else []
 
-        for tag in soup.find_all(["h1", "h2", "h3", "p"]):
-            # Makes sure inline breaks (like <br>) become \n within the same tag.
-            text = tag.get_text(separator="\n",strip=True)
+        # Extract text blocks from main content-related tags
+        for tag in soup.find_all(["h1", "h2", "h3", "h4", "h5", "p", "li", "ul", "ol"]):
+            text = tag.get_text(separator=" ",strip=True)
+            text = re.sub(r'\s*•\s*', '\n• ', text)
+            # Normalize numbered lists that got squashed: "1. foo 2. bar" -> new lines
+            text = re.sub(r'\s*(\d+)\.\s*', r'\n\1. ', text)
+
             if text:
                 texts.append(text)
 
-        clean_text = "\n\n".join(texts) # keep 2 newlines between sections
-
-        # Normalize spacing but preserve paragraph breaks
-        clean_text = re.sub(r'\n{3,}', '\n\n', clean_text).strip()
+        # Join with paragraph spacing
+        clean_text = "\n\n".join(texts) # keeps 2 newlines between sections
 
         return clean_text
 
