@@ -27,6 +27,25 @@ class EmbeddingStorage:
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.mode = mode
+    
+    def is_available(self, strict: bool = True) -> bool:
+        """
+        Check whether embedding data files exist for the current mode.
+        Args:
+            strict: If True, raises on invalid mode. If False, returns False silently.
+        """
+        npz_path = self.data_dir / EMBEDDINGS_OUTPUT_NPZ
+        split_embeddings = self.data_dir / EMBEDDINGS_OUTPUT_NPY
+        split_meta = self.data_dir / EMBEDDINGS_OUTPUT_METADATA_PARQUET
+
+        if self.mode == "npz":
+            return npz_path.exists()
+        elif self.mode == "split":
+            return split_embeddings.exists() and split_meta.exists()
+        elif strict:
+            raise ValueError(f"Invalid mode '{self.mode}'. Choose 'npz' or 'split'.")
+        else:
+            return False
 
     # SAVE
     def save(
