@@ -44,7 +44,7 @@ class EmbeddingGenerator:
     ):
         self.input_path = PROCESSED_DIR / input_filename
         self.embedding_model_name = embedding_model_name
-        self.save_model_dir = MODEL_DIR / embedding_model_name
+        self.save_model_dir = MODEL_DIR / embedding_model_name / "base"
         self.batch_size = batch_size
         self.use_cache = use_cache
         self.save_mode = save_mode
