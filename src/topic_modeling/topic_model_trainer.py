@@ -21,18 +21,22 @@ from umap import UMAP
 from pathlib import Path
 from nltk.corpus import stopwords
 import nltk
-nltk.download('stopwords')
 
 from src.topic_modeling.embedding_storage import EmbeddingStorage
 from src.topic_modeling.constants import (
     CHUNKED_CORPUS_OUTPUT,
-    EMBEDDING_MODEL_NAME,
     TOPIC_MODEL_OUTPUT
 )
 
+# Ensure NLTK stopwords available
+try:
+    stop_words = stopwords.words("english")
+except LookupError:
+    nltk.download("stopwords") # stores in global cache directory
+    stop_words = stopwords.words("english")
+
 # Set the proper output path
 PROCESSED_DIR = Path(__file__).parents[2] / "data" / "processed"
-
 MODEL_DIR = Path(__file__).parents[2] / "data" / "models"
 MODEL_DIR.mkdir(parents=True, exist_ok=True)
 EMBEDDINGS_DIR = Path(__file__).parents[2] / "data" / "embeddings"
@@ -41,38 +45,27 @@ class TopicModelTrainer:
     def __init__(
             self,
             input_filename: str = CHUNKED_CORPUS_OUTPUT,
-            embedding_model_name: str = EMBEDDING_MODEL_NAME,
             model_filename: str = TOPIC_MODEL_OUTPUT,
             language: str = "english",
             verbose: bool = True,
+            calculate_probabilities: bool = True,
+            min_topic_size: int = 10,
+            use_cache: bool = True
             ):
         """
         Args:
             input_filename (str): Preprocessed document chunks.
-            embedding_model_name (str): Name of the embedding model
             model_filename (str): Output model file.
             language (str): Language for topic modeling.
         """
         self.input_path = PROCESSED_DIR / input_filename
-        self.embedding_model_name = embedding_model_name
         self.model_path = MODEL_DIR / model_filename
         self.language = language
         self.verbose = verbose
-
+        self.use_cache = use_cache
         self.storage = EmbeddingStorage(data_dir=EMBEDDINGS_DIR, mode= "npz")
 
-        # Setup embedding model (semantic)
-        print(f"[Init] Setting up semantic embedding model: {embedding_model_name}")
-        self.embedding_model = SentenceTransformer(self.embedding_model_name)
-
-        # In later stage i.e in production or reproducible MLOps pipelines, change to this
-        # if (MODEL_DIR / EMBEDDING_MODEL_OUTPUT).exists():
-        #     self.embedding_model = BERTopic.load(MODEL_DIR / EMBEDDING_MODEL_OUTPUT)
-        # else:
-        #     self.embedding_model = SentenceTransformer(self.embedding_model_name)
-
         # Setup vectorizer (for topic labeling only)
-        stop_words = stopwords.words(self.language)
         self.vectorizer_model = CountVectorizer(
             stop_words=stop_words,
             lowercase=True,
@@ -89,46 +82,40 @@ class TopicModelTrainer:
             random_state=42,
         )
 
-        # Initialize BERTopic
-        self.model = BERTopic(
-            embedding_model=self.embedding_model,
-            vectorizer_model=self.vectorizer_model,
-            umap_model=self.umap_model,
-            verbose=self.verbose,
-        )
+        # Load trained model or initialize model
+        if self.model_path.exists() and self.use_cache:
+            print(f"[Init] Loading existing BERTopic model from {self.model_path}")
+            self.model = BERTopic.load(self.model_path)
+            self.is_trained = True
+        else:
+            if self.model_path.exists() and not self.use_cache:
+                backup_path = self.model_path.with_suffix(".bak")
+                self.model_path.rename(backup_path)
+                print(f"[Backup] Previous model backed up at {backup_path}")
+                print(f"[Info] use_cache=False — existing model at {self.model_path} will be retrained and overwritten.")
+
+            print(f"[Init] Creating new BERTopic model...")
+            self.model = BERTopic(
+                embedding_model=None, # embeddings provided manually
+                vectorizer_model=self.vectorizer_model,
+                umap_model=self.umap_model,
+                verbose=self.verbose,
+                calculate_probabilities=calculate_probabilities,
+                # min_topic_size = min_topic_size 
+            )
+            self.is_trained = False
+
         print("[Init] BERTopic model initialized successfully.")
-        
-    
-    def update_documents_with_topics(self,df: pd.DataFrame, topics: list[int], probs: np.ndarray):
-        """
-        Update the documents with their assigned topics and probabilities.
-        """
 
-        # Guard: ensure consistent lengths
-        if len(df) != len(topics):
-            raise ValueError(
-            f"Mismatch: {len(df)} documents vs {len(topics)} topic assignments."
-        )
 
-        # Handle existing columns safely
-        if "topic" in df.columns or "probability" in df.columns:
-            print("[Warning] Existing 'topic' or 'probability' columns detected — overwriting.")
-            df = df.drop(columns=["topic", "probability"], errors="ignore")
-
-        df["topic"] = topics
-        df["probability"] = probs
-
-        # Overwrite the same input file
-        temp_path = self.input_path.with_suffix(".tmp.csv")
-        df.to_csv(temp_path, index=False)
-        temp_path.replace(self.input_path)
-        
-        print(f"[Updated] Added topic assignments in {self.input_path}")
-
-    def train_model(self) -> tuple[BERTopic, list[int], np.ndarray]:
+    def train_model(self) -> BERTopic:
         """
         Train the BERTopic model on documents and embeddings.
         """
+        if self.is_trained and self.use_cache:
+            print("[Cache] Model already trained. Skipping retraining.")
+            return self.model
+                
         # Load input data
         df = pd.read_csv(self.input_path)
 
@@ -138,7 +125,6 @@ class TopicModelTrainer:
             df = df.dropna(subset=["text"]).reset_index(drop=True)
 
         documents = df["text"].astype(str).tolist()
-
         if not documents:
             raise ValueError("No valid documents found for embedding generation.")
         
@@ -149,22 +135,21 @@ class TopicModelTrainer:
         if embeddings is None:
             raise ValueError("Embeddings not found in loaded data.")
         
-        # Alignment check
-        if len(documents) != embeddings.shape[0]:
+        if len(documents) != embeddings.shape[0]: # Alignment check
             raise ValueError(f"Mismatch: {len(documents)} documents vs {embeddings.shape[0]} embeddings")
         
         # Train BERTopic model
         print(f"[Training] BERTopic model on {len(documents)} documents...")
         topics, probs = self.model.fit_transform(documents, embeddings)
         # The embedding_model inside BERTopic is never invoked during training if embeddings are explicitly provided.
-        print(f"[Done] Model trained. Unique topics: {len(set(topics))}")
+        print(f"[Done] Model trained. Unique topics: {len(np.unique(topics))}")
+        print("[Summary] Example topics:")
+        for topic_num in list(set(topics))[:5]:
+            print(f"  {topic_num}: {self.model.get_topic(topic_num)}")
 
-        # Handle None probabilities(for unassigned documents)
-        probs = np.array([p if p is not None else 0.0 for p in probs])
 
-        # Update the same input documents with topic assignments
-        self.update_documents_with_topics(df, topics, probs)
-        return self.model, topics, probs
+        self.is_trained = True
+        return self.model
 
     def save_model(self):
         """
@@ -180,13 +165,14 @@ if __name__ == "__main__":
 
     trainer = TopicModelTrainer(
         input_filename = CHUNKED_CORPUS_OUTPUT,
-        embedding_model_name = EMBEDDING_MODEL_NAME,
         model_filename = TOPIC_MODEL_OUTPUT,
         language= "english",
         verbose=True,
+        use_cache=False
     )
-    model, topics, probs = trainer.train_model()
-    trainer.save_model()
+    topic_model = trainer.train_model()
+    model_path = trainer.save_model()
+    print(f"[Info] Model saved at: {model_path}")
 
     total = time.perf_counter() - start
     print(f"[Total] End-to-end execution time: {total/60:.2f} minutes")
