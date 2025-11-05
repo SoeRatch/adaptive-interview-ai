@@ -50,11 +50,10 @@ class TextChunker:
         self.splitter = RecursiveCharacterTextSplitter(
             separators=[
                 "\n\n",               # paragraph
-                "\n[BULLET]",         # our normalized list token
-                "[BULLET]",           # list marker
-                "\n- ",               # dash lists
+                "\n- ",
+                "\n",
+                "-",
                 "\n• ",               # bullet lists (in case any survived)
-                "\n",                 # single newline
                 ". ", "? ", "! ",     # sentence ends
                 " "                   # fallback
             ],
@@ -80,8 +79,14 @@ class TextChunker:
                 tqdm.write(f"[SKIP] Empty text at index: {idx}, skipping.")
                 continue
 
+            # Normalize leftover bullets
+            text = text.replace("•", "\n- ").replace("\n• ", "\n- ")
+
             chunks = self.splitter.split_text(text)
             for c in chunks:
+                c = c.strip()
+                if not c:
+                    continue
                 all_chunks.append({
                     "source_id": row.get("id", idx),
                     "url": row.get("url", ""),
