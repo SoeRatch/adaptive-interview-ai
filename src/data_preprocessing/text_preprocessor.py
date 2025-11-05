@@ -68,10 +68,10 @@ class TextPreprocessor:
 
         # 3. Normalize unicode punctuation
         replacements = {
-            "•": "[BULLET] ",
-            "◦": "[BULLET] ",
-            "▪": "[BULLET] ",
-            "‣": "[BULLET] ",
+            "•": "- ",
+            "◦": "- ",
+            "▪": "- ",
+            "‣": "- ",
             "–": "-",       # en dash
             "—": "-",       # em dash
             "“": '"',
@@ -99,7 +99,7 @@ class TextPreprocessor:
         text = re.sub(r"[^A-Za-z0-9\s.,!?%:\-\[\]\"'/]", " ", text)
 
         # 9. Fix space before punctuation for ex - "word , something" -> "word, something"
-        text = re.sub(r"\s+([.,!?%\-])", r"\1", text)
+        text = re.sub(r"\s+([.,!?%])", r"\1", text)
 
         # 10. Collapse multiple spaces
         # compress spaces/tabs inside lines but don't touch newlines
