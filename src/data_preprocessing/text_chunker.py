@@ -28,7 +28,7 @@ PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class TextChunker:
-    def __init__(self, chunk_size=800, chunk_overlap=150, input_filename=CLEAN_CORPUS_OUTPUT, output_filename=CHUNKED_CORPUS_OUTPUT):
+    def __init__(self, chunk_size=1000, chunk_overlap=150, input_filename=CLEAN_CORPUS_OUTPUT, output_filename=CHUNKED_CORPUS_OUTPUT):
         """
         Parameters
         ----------
@@ -46,8 +46,18 @@ class TextChunker:
         self.input_path = PROCESSED_DIR / input_filename
         self.output_path = PROCESSED_DIR / output_filename
 
+        # Include structure tokens as separators
         self.splitter = RecursiveCharacterTextSplitter(
-            separators=["\n\n", "\n", ". ", "? ", "! ", " "],
+            separators=[
+                "\n\n",               # paragraph
+                "\n[BULLET]",         # our normalized list token
+                "[BULLET]",           # list marker
+                "\n- ",               # dash lists
+                "\n• ",               # bullet lists (in case any survived)
+                "\n",                 # single newline
+                ". ", "? ", "! ",     # sentence ends
+                " "                   # fallback
+            ],
             chunk_size=self.chunk_size,
             chunk_overlap=self.chunk_overlap,
             length_function=len
