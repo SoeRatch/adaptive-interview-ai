@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 
 from src.data_acquisition.web.web_constants import (
-    REQUEST_TIMEOUT, VIDEO_DOMAINS, USER_AGENT
+    REQUEST_TIMEOUT, VIDEO_DOMAINS, USER_AGENT, FAILED_URLS_AFTER_MAX_RETRIES
 )
 
 def is_valid_url(url: str) -> bool:
@@ -54,6 +54,9 @@ def is_medium_url(url: str) -> bool:
 def is_video_url(url: str) -> bool:
      domain = urlparse(url).netloc
      return any(vd in domain for vd in VIDEO_DOMAINS)
+
+def is_failed_url(url: str) -> bool:
+     return url in FAILED_URLS_AFTER_MAX_RETRIES
 
 def is_github_repo(url: str) -> bool:
     parsed = urlparse(url)

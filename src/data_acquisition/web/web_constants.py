@@ -12,7 +12,9 @@ SEED_URLS = [
     "https://www.adaface.com/blog/system-design-interview-questions/",
     "https://github.com/sid24rane/System-Design-Interview-Questions",
     "https://www.hellointerview.com/learn/system-design/in-a-hurry/introduction",
-    "https://highscalability.com/untitled-2/"
+    "https://highscalability.com/untitled-2/",
+    "https://github.com/karanpratapsingh/system-design",
+    "https://github.com/donnemartin/system-design-primer"
 
 ]
 
@@ -37,6 +39,13 @@ USER_AGENT = "Mozilla/5.0 (compatible; TopicModelBot/1.2)"
 # Domains that require JS rendering
 # JS_REQUIRED_DOMAINS = []
 
+VIDEO_DOMAINS = [
+    "youtube.com",
+    "youtu.be",
+    "vimeo.com",
+    "dailymotion.com",
+    "twitch.tv"
+]
 
 # -----------------------------
 # Content Filtering Constants
@@ -154,3 +163,8 @@ UI_NOISE_WORDS = ["home", "dashboard", "menu", "login", "logout", "signup", "sha
 
 MIN_PARAGRAPH_LENGTH = 120
 MIN_PARAGRAPH_WORDS = 15
+
+FAILED_URLS_AFTER_MAX_RETRIES = [
+    'https://blog.wahab2.com/api-architecture-best-practices-for-designing-rest-apis-bf907025f5f',
+    'https://onesearch.blog'
+]
