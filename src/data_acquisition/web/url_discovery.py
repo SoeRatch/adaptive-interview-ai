@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 from pathlib import Path
 
 from src.data_acquisition.web.web_utils import (
-    is_valid_url, normalize_url, is_html_link, can_fetch
+    is_valid_url, normalize_url, is_html_link, can_fetch, resolve_redirect
 )
 
 from src.data_acquisition.web.web_constants import (
@@ -37,6 +37,7 @@ class URLDiscovery:
         self.progress_path = RAW_WEB_DIR / progress_filename
 
         self.results = []
+        self.redirect_cache = {}
         self.progress = self._load_progress()
 
     def _load_progress(self):
@@ -106,10 +107,20 @@ class URLDiscovery:
             if not is_valid_url(href) or not is_html_link(href):
                 continue
 
-            if self.contains_keyword(href, text):
+            # Resolve final canonical URL (lightweight HEAD)
+            if href in self.redirect_cache:
+                final_url = self.redirect_cache[href]
+            else:
+                final_url = resolve_redirect(href)
+                self.redirect_cache[href] = final_url
+            
+            if not final_url:
+                continue
+
+            if self.contains_keyword(final_url, text):
                 results.append({
                     "title": text[:150],
-                    "url": href,
+                    "url": final_url,
                     "source": urlparse(seed_url).netloc
                 })
 

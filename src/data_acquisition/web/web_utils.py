@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 
 from src.data_acquisition.web.web_constants import (
-    REQUEST_TIMEOUT
+    REQUEST_TIMEOUT, VIDEO_DOMAINS, USER_AGENT
 )
 
 def is_valid_url(url: str) -> bool:
@@ -29,7 +29,8 @@ def can_fetch(url: str) -> bool:
     parsed = urlparse(url)
     domain = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
     try:
-        res = requests.get(domain, timeout=REQUEST_TIMEOUT)
+        headers = {"User-Agent": USER_AGENT}
+        res = requests.get(domain, headers=headers, timeout=REQUEST_TIMEOUT)
         if res.status_code >= 400:
             # When you get a 4xx or 5xx error on /robots.txt, it means
             # the site doesn’t have a robots.txt file (404 Not Found), or
@@ -50,10 +51,37 @@ def can_fetch(url: str) -> bool:
 def is_medium_url(url: str) -> bool:
      return "medium.com" in urlparse(url).netloc
 
+def is_video_url(url: str) -> bool:
+     domain = urlparse(url).netloc
+     return any(vd in domain for vd in VIDEO_DOMAINS)
+
 def is_github_repo(url: str) -> bool:
     parsed = urlparse(url)
     return "github.com" in parsed.netloc and re.match(r"^/[^/]+/[^/]+/?$", parsed.path)
-
+    
+def resolve_redirect(url: str, timeout: int = REQUEST_TIMEOUT) -> str:
+    """
+    Resolve the final destination URL by following redirects.
+    Uses a lightweight HEAD request first, falling back to GET if needed.
+    Returns the final URL or None if it fails.
+    """
+    try:
+        headers = {
+            "User-Agent": USER_AGENT,
+            "Accept-Encoding": "identity",  # prevents gzip overhead
+            }
+        res = requests.head(url, headers=headers, timeout=timeout, allow_redirects=True)
+        if res.status_code in (405, 403):  # HEAD not allowed, try GET
+            res = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
+        final_url = res.url
+        if final_url.rstrip('/') != url.rstrip('/'):
+            print(f"[REDIRECT] {url} to {final_url}")
+        return final_url.rstrip('/')
+    except requests.RequestException:
+        return None
+    except Exception:
+        return None
+        
 
 def remove_ui_noise(soup, debug=False):
     """
@@ -98,3 +126,15 @@ def remove_ui_noise(soup, debug=False):
             continue
 
     return soup
+
+
+def get_canonical_url(soup, fetched_url):
+    link_tag = soup.find("link", rel="canonical")
+    if link_tag and link_tag.get("href"):
+        canonical = link_tag["href"].strip()
+        if canonical.startswith("/"):
+            # relative canonical URL — resolve it
+            from urllib.parse import urljoin
+            canonical = urljoin(fetched_url, canonical)
+        return canonical.rstrip('/')
+    return fetched_url.rstrip('/')
