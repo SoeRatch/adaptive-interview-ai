@@ -271,13 +271,20 @@ class WebContentExtractor:
 
 # ---------- Main ----------
 if __name__ == "__main__":
+    import time
+    start = time.perf_counter()
+
     from src.data_acquisition.web.content_filter import filter_system_design_content
     extractor = WebContentExtractor(filter_fn=filter_system_design_content)
+
     try:
         extractor.extract_from_csv()
     except KeyboardInterrupt:
         print("\nInterrupted by user. Saving progress...")
         extractor._save_history()
+
+    total = time.perf_counter() - start
+    print(f"[Total] End-to-end execution time: {total/60:.2f} minutes")
     
 
 
