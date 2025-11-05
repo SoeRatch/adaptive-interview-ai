@@ -14,7 +14,7 @@ from tqdm import tqdm
 from pathlib import Path
 
 from src.data_acquisition.web.web_utils import (
-    can_fetch, is_medium_url, is_github_repo, remove_ui_noise
+    can_fetch, is_medium_url, is_github_repo, is_video_url, is_failed_url, remove_ui_noise
 )
 
 from src.data_acquisition.web.web_constants import (
@@ -52,6 +52,7 @@ class WebContentExtractor:
         self.output_path = RAW_PROCESSED_DIR / output_filename
 
         self.history = self._load_history()
+        self.failed_urls_after_retry = []
     
     def _load_history(self):
         if self.history_path.exists():
@@ -106,15 +107,15 @@ class WebContentExtractor:
                 print(f"[WARN] Attempt {attempt+1} failed for {url}: {e}")
                 print(f"[BACKOFF] Waiting {wait_time:.1f}s before retrying...")
                 time.sleep(wait_time)
+        self.failed_urls_after_retry.append(url)
         print(f"[ERROR] Giving up on {url}")
         return ""
-
-
+    
     # -------------------- Extraction ---------------------
+
     def extract_text(self, html):
         """Extract clean text from HTML."""
         soup = BeautifulSoup(html, "html.parser", from_encoding="utf-8")
-        
         # soup = remove_ui_noise(soup)
         for tag in soup(["script", "style", "noscript", "header", "footer", "nav", "aside", "form", "button","iframe"]):
             tag.decompose()
@@ -150,6 +151,15 @@ class WebContentExtractor:
 
     def process_url(self, url, source,title=""):
         """Fetch, extract, and filter content from a URL"""
+
+        if is_failed_url(url):
+            print(f"[SKIP] Skipping observed repeatedly failed URLs in past: {url}")
+            return None
+        
+        if is_video_url(url):
+            print(f"[SKIP] Skipping Video URL: {url}")
+            return None
+
         if is_medium_url(url):
             print(f"[SKIP] Skipping Medium URL: {url}")
             return None
@@ -158,12 +168,16 @@ class WebContentExtractor:
             print(f"[SKIP] Disallowed by robots.txt: {url}")
             return None
         
-        if is_github_repo(url):
+        if "github.com" in urlparse(url).netloc:
+            if not is_github_repo(url):
+                # Skip all GitHub URLs that are not repositories
+                print(f"[SKIP] Skipping GitHub non-repo URL: {url}")
+                return None
+
             print(f"Fetching GitHub Markdown: {url}")
             for raw_url in self.get_raw_markdown_urls(url):
                 content = self.fetch_markdown(raw_url)
                 filtered = self.filter_fn(content)
-
                 if filtered.strip():
                     return {"url": raw_url, "source": source, "title": title, "content": filtered}
             return None
@@ -172,7 +186,7 @@ class WebContentExtractor:
         html = self.fetch_html(url)
         if not html:
             return None
-        
+            
         content = self.extract_text(html)
         filtered = self.filter_fn(content)
         if not filtered.strip():
@@ -181,7 +195,7 @@ class WebContentExtractor:
 
         title = filtered.split("\n")[0] if not title else title
         return {"url": url, "source": source, "title": title, "content": filtered}
-
+        
     # Incremental Extraction to CSV
     def extract_from_csv(self):
         df_urls = pd.read_csv(self.input_path)
@@ -246,6 +260,11 @@ class WebContentExtractor:
                 )
 
             df_new.to_csv(self.output_path, mode='a', index=False, header=write_header,encoding='utf-8')
+
+        
+        if self.failed_urls_after_retry:
+            tqdm.write("Failed URLs after retries:\n" + "\n".join(self.failed_urls_after_retry))
+        tqdm.write(f"No. of failed urls after retries - {len(self.failed_urls_after_retry)}")
 
         tqdm.write(f"✅ Completed crawling. Total new content: {len(corpus)}")
 
