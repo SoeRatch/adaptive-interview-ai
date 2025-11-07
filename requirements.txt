@@ -30,7 +30,9 @@ qdrant-client
 transformers
 langchain
 langchain-community
+langchain-huggingface
+langchain-openai
 bertopic
 # openai
 # torch
-# sentencepiece
+sentencepiece

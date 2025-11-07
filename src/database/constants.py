@@ -1,2 +1,4 @@
 FAISS_INDEX_FILEPATH = "data/vector_index/faiss.index"
 FAISS_INDEX_DIMENENSIONS = 384
+
+EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
