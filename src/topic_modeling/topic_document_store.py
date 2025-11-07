@@ -10,7 +10,8 @@ import numpy as np
 from bertopic import BERTopic
 from pathlib import Path
 from src.database.postgres_handler import PostgresHandler
-from src.database.vector_db_factory import get_vector_db_handler
+# from src.database.vector_db_factory import get_vector_db_handler
+from src.database.langchain_vector_db_factory import get_langchain_vector_db_handler
 from src.topic_modeling.embedding_storage import EmbeddingStorage
 
 from src.topic_modeling.constants import (
@@ -43,7 +44,7 @@ class TopicDocumentStore:
             config (dict): Backend-specific configuration.
         """
         self.pg = pg_handler
-        self.vector_db = get_vector_db_handler(backend, config)
+        self.vector_db = get_langchain_vector_db_handler(backend, config)
         self.topic_metadata_table = topic_metadata_table
         self.topic_document_table = topic_document_table
         self.model_path = MODEL_DIR / model_filename
@@ -118,7 +119,22 @@ class TopicDocumentStore:
 
         # Step 3: Insert embeddings in Vector DB
         print("Storing embeddings in Vector DB...")
-        self.vector_db.upsert_embeddings(ids=document_ids, vectors=embeddings)
+
+        metadatas = [
+            {
+                "document_id": doc_id,
+                "topic_id": topic_id,
+                "topic_name": topic_name,
+                "title": title,
+                "url": url
+                }
+                for doc_id, topic_id, topic_name, title, url in zip(
+                    document_ids, df["topic_id"], df["topic_name"], df["title"], df["url"]
+                    )
+        ]
+        self.vector_db.build_index(docs, metadatas=metadatas)
+
+        # self.vector_db.upsert_embeddings(ids=document_ids, vectors=embeddings)
         print(f"✅ Stored {len(document_ids)} embeddings in Vector DB ({self.vector_db.__class__.__name__}).")
 
 
