@@ -6,6 +6,8 @@ python-dotenv
 psycopg2-binary
 scikit-learn
 umap-learn
+fastapi
+uvicorn
 
 # Web scraping / acquisition
 requests
