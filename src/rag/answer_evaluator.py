@@ -8,7 +8,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import SystemMessage
 
 from src.rag.utils import (
-    strip_code_fences, safe_json_parse, coerce_numeric_fields
+    strip_code_fences, safe_json_parse, coerce_types
 )
 
 # -----------------------
@@ -43,10 +43,12 @@ EVALUATION_SCHEMA = {
 
 
 def parse_and_normalize_json(text: str) -> Dict[str, Any]:
-    """Pipeline: clean fences -> parse -> coerce numeric fields."""
+    """Pipeline: clean fences -> parse -> coerce field types."""
     cleaned = strip_code_fences(text)
     parsed = safe_json_parse(cleaned)
-    return coerce_numeric_fields(parsed)
+    if not isinstance(parsed, dict):
+        return {}
+    return coerce_types(parsed)
 
 class AnswerEvaluator:
     """
@@ -97,35 +99,53 @@ class AnswerEvaluator:
             "score": None,
             "strengths": None,
             "weaknesses": None,
-            "next_action": "retry"
+            "next_action": "retry_same_topic"
         }
 
-    def _attempt_repair(self, bad_output: str, system_instruction: SystemMessage) -> Dict[str, Any]:
+    def _attempt_repair(self, bad_output: str) -> Dict[str, Any]:
         """
         One targeted repair call: ask the LLM to return valid JSON only.
         This is used sparingly (only when parsing fails).
         """
         if self.debug:
             print("[DEBUG] Attempting repair of malformed LLM output.")
+        
+        # Escape curly braces to avoid LangChain template parsing errors
+        safe_schema = json.dumps(EVALUATION_SCHEMA, indent=2).replace("{", "{{").replace("}", "}}")
+
         repair_prompt_template = (
             "The following output is intended to be a JSON object matching this schema:\n"
-            f"{json.dumps(EVALUATION_SCHEMA, indent=2)}\n\n"
+            f"{safe_schema}\n\n"
             "Please FIX and RETURN ONLY valid JSON (no explanation):\n\n"
             f"{bad_output}"
         )
         # We call the LLM directly with a short system instruction to fix JSON
-        repair_prompt = ChatPromptTemplate.from_messages(
-            [("system", str(system_instruction)), ("user", repair_prompt_template)]
-        )
+        repair_prompt = ChatPromptTemplate.from_messages([
+            ("system", "You are a strict JSON fixer. Return only valid JSON matching the schema."),
+            ("user", repair_prompt_template)
+            ])
+        
         repair_chain = repair_prompt | self.llm
-        repair_response = repair_chain.invoke({})
-        repair_text = repair_response.content if hasattr(repair_response, "content") else str(repair_response)
-        repaired = parse_and_normalize_json(repair_text)
+
         try:
+            repair_response = repair_chain.invoke({})
+            repair_text = getattr(repair_response, "content", str(repair_response))
+            repaired = parse_and_normalize_json(repair_text)
+
             validate(instance=repaired, schema=EVALUATION_SCHEMA)
+            if self.debug:
+                print("[DEBUG] Repair succeeded after coercion.")
             return repaired
-        except ValidationError:
+
+        except ValidationError as ve:
+            if self.debug:
+                print(f"[WARN] Repaired output still invalid: {ve}")
             return {}
+        except Exception as e:
+            if self.debug:
+                print(f"[ERROR] Repair process failed: {e}")
+            return {}
+        
 
     def evaluate(
         self,
@@ -180,7 +200,7 @@ class AnswerEvaluator:
                 parsed = parse_and_normalize_json(raw_output)
                 if not parsed:
                     # nothing parsed, so attempt a single repair
-                    repaired = self._attempt_repair(raw_output, system_instruction_message)
+                    repaired = self._attempt_repair(raw_output)
                     if repaired:
                         result = repaired
                         break
@@ -199,7 +219,7 @@ class AnswerEvaluator:
                 # Validation failed for the parsed dict -> try a repair (one-shot)
                 if self.debug:
                     print(f"[WARN] ValidationError at attempt {attempt+1}: {ve}. Attempting repair.")
-                repaired = self._attempt_repair(raw_output, system_instruction_message)
+                repaired = self._attempt_repair(raw_output)
                 if repaired:
                     result = repaired
                     break
