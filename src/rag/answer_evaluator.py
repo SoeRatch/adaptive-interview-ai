@@ -117,7 +117,7 @@ class AnswerEvaluator:
             "The following output is intended to be a JSON object matching this schema:\n"
             f"{safe_schema}\n\n"
             "Please FIX and RETURN ONLY valid JSON (no explanation):\n\n"
-            f"{bad_output}"
+            "{bad_output}"
         )
         # We call the LLM directly with a short system instruction to fix JSON
         repair_prompt = ChatPromptTemplate.from_messages([
@@ -128,7 +128,7 @@ class AnswerEvaluator:
         repair_chain = repair_prompt | self.llm
 
         try:
-            repair_response = repair_chain.invoke({})
+            repair_response = repair_chain.invoke({"bad_output": bad_output})
             repair_text = getattr(repair_response, "content", str(repair_response))
             repaired = parse_and_normalize_json(repair_text)
 

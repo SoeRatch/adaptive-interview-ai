@@ -35,6 +35,6 @@ langchain-community
 langchain-huggingface
 langchain-openai
 bertopic
+sentencepiece
 # openai
 # torch
-sentencepiece
